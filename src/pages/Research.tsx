@@ -1,5 +1,6 @@
 import { emptyCopy, integrations } from "../data/appConfig";
 import { researchProjects } from "../data/dataset";
+import { useZyrex } from "../store/ZyrexProvider";
 import { PageShell } from "../components/layout/PageShell";
 import { Badge, Button, Panel, PanelHeader } from "../components/ui/Controls";
 import { ConnectionPill, DataUnavailable, ListPlaceholder } from "../components/ui/EmptyStates";
@@ -14,6 +15,7 @@ const projectSections = [
 ];
 
 export function Research() {
+  const { aiStatus, aiStatusLabel } = useZyrex();
   const hasProjects = researchProjects.length > 0;
 
   return (
@@ -84,7 +86,7 @@ export function Research() {
           <Panel className="z-rise">
             <div className="flex flex-col items-start gap-5 p-5 sm:p-7">
               <div className="w-full">
-                <ConnectionPill state="disconnected" label={integrations.ai.statusLabel} />
+                <ConnectionPill state={aiStatus} label={aiStatusLabel} />
                 <h2 className="mt-4 text-xl font-semibold text-ink sm:text-[1.5rem]">
                   {emptyCopy.research.title}
                 </h2>

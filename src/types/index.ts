@@ -264,6 +264,13 @@ export type AnalysisResult =
   | { status: "offline"; reason: string }
   | { status: "ready"; title: string; blocks: ResponseBlock[] };
 
+/** Payload sent to the ZYREX backend when asking for an answer. */
+export interface AnalysisRequest {
+  prompt: string;
+  mode: AiModeId;
+  history?: Array<{ role: "user" | "zyrex"; text?: string }>;
+}
+
 export type ChatRole = "user" | "assistant" | "zyrex";
 
 export interface ChatMessage {

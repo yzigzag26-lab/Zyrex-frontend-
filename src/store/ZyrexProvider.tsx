@@ -9,11 +9,13 @@ import {
 } from "react";
 import { aiModes, defaultSettings } from "../data/appConfig";
 import { requestAnalysis, trades as datasetTrades } from "../data/dataset";
+import { aiBackend, checkAiBackendHealth, healthLabel } from "../lib/zyrexApi";
 import type {
   AiMode,
   AiModeId,
   AppSettings,
   ChatMessage,
+  ConnectionState,
   Conversation,
   PageId,
   Theme,
@@ -47,6 +49,13 @@ interface ZyrexContextValue {
 
   /* data availability (drives every empty state) */
   hasTradeData: boolean;
+
+  /* live backend connection (probed against the real endpoint) */
+  aiStatus: ConnectionState;
+  aiStatusDetail: string;
+  aiStatusLabel: string;
+  aiBackendUrl: string;
+  recheckAiConnection: () => void;
 
   /* conversations */
   conversations: Conversation[];
@@ -92,6 +101,12 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [phase, setPhase] = useState<ChatPhase>("idle");
   const [promptNotice, setPromptNotice] = useState<string | null>(null);
+
+  /* live AI backend connection ------------------------------------------ */
+  const [aiStatus, setAiStatus] = useState<ConnectionState>("connecting");
+  const [aiStatusDetail, setAiStatusDetail] = useState<string>(
+    `Probing ${aiBackend.baseUrl}${aiBackend.healthEndpoint}…`,
+  );
 
   const [settings, setSettings] = useLocalStorage<AppSettings>("zyrex.settings", defaultSettings);
 
@@ -169,6 +184,24 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
 
   const clearPromptNotice = useCallback(() => setPromptNotice(null), []);
 
+  /* ---------------------------------------------------- backend connection */
+  /**
+   * Probes the real backend endpoint. Every "connected / offline" surface
+   * reads this result, so it only reports success when the backend answered.
+   */
+  const recheckAiConnection = useCallback(() => {
+    setAiStatus("connecting");
+    setAiStatusDetail(`Probing ${aiBackend.baseUrl}${aiBackend.healthEndpoint}…`);
+    void checkAiBackendHealth().then((health) => {
+      setAiStatus(health.state);
+      setAiStatusDetail(health.detail);
+    });
+  }, []);
+
+  useEffect(() => {
+    recheckAiConnection();
+  }, [recheckAiConnection]);
+
   /* chat ---------------------------------------------------------------- */
   /**
    * Sends a prompt to the ZYREX AI backend through `requestAnalysis`.
@@ -208,11 +241,12 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
       }
 
       setPage("ai");
-      setPhase("thinking");
+      setPhase("connecting");
 
       const history = activeConversation?.messages.slice(-6) ?? [];
 
       window.setTimeout(() => {
+        setPhase("thinking");
         void requestAnalysis({
           prompt: text,
           mode: modeId,
@@ -222,6 +256,14 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
           })),
         })
           .then((result) => {
+            if (result.status === "ready") {
+              setAiStatus("connected");
+              setAiStatusDetail("Backend answered the last analysis request.");
+            } else {
+              setAiStatus("error");
+              setAiStatusDetail(result.reason);
+            }
+
             const message: ChatMessage =
               result.status === "ready"
                 ? {
@@ -249,6 +291,10 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
             }));
           })
           .catch(() => {
+            setAiStatus("disconnected");
+            setAiStatusDetail(
+              `Couldn't reach ${aiBackend.baseUrl}. It may be offline or blocking cross-origin requests.`,
+            );
             patchConversation(conversationId as string, (c) => ({
               ...c,
               updatedAt: "Just now",
@@ -309,6 +355,11 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
     mode,
     setMode: setModeId,
     hasTradeData,
+    aiStatus,
+    aiStatusDetail,
+    aiStatusLabel: healthLabel(aiStatus),
+    aiBackendUrl: aiBackend.baseUrl,
+    recheckAiConnection,
     conversations,
     activeConversationId: activeId,
     activeConversation,
