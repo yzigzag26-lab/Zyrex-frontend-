@@ -268,7 +268,11 @@ export type AnalysisResult =
 export interface AnalysisRequest {
   prompt: string;
   mode: AiModeId;
-  history?: Array<{ role: "user" | "zyrex"; text?: string }>;
+  /**
+   * Conversation context. The backend's roles are "user" | "assistant" —
+   * "zyrex" is a frontend-only role and must never reach the wire.
+   */
+  history?: Array<{ role: "user" | "assistant"; text?: string }>;
 }
 
 export type ChatRole = "user" | "assistant" | "zyrex";

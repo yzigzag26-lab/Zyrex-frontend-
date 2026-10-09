@@ -22,6 +22,7 @@ import type {
 } from "../types";
 import { createId } from "../utils/format";
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import { responseToText } from "../utils/responseText";
 import { useMediaQuery } from "../hooks/useElementSize";
 
 /** Chat phase for the live request lifecycle. */
@@ -247,17 +248,22 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
       setPage("ai");
       setPhase("connecting");
 
-      const history = activeConversation?.messages.slice(-6) ?? [];
+      const history = activeConversation?.messages.slice(-8) ?? [];
 
       window.setTimeout(() => {
         setPhase("thinking");
         void requestAnalysis({
           prompt: text,
           mode: modeId,
-          history: history.map((message) => ({
-            role: message.role === "user" ? "user" : "zyrex",
-            text: message.text ?? message.title ?? "",
-          })),
+          history: history.map((message) =>
+            message.role === "user"
+              ? { role: "user" as const, text: message.text ?? "" }
+              : {
+                  // The backend expects "assistant"; "zyrex" is UI-only.
+                  role: "assistant" as const,
+                  text: responseToText(message.title ?? "ZYREX Analysis", message.blocks ?? []),
+                },
+          ),
         })
           .then((result) => {
             if (result.status === "ready") {

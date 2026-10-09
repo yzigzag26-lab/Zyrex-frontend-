@@ -51,8 +51,24 @@ function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/+$/, "")}${suffix}`;
 }
 
-const baseUrl = readEnv("VITE_API_URL") ?? DEFAULT_BASE_URL;
-const viaProxy = readEnv("VITE_USE_DEV_PROXY") === "true";
+/**
+ * Base URL precedence: VITE_API_BASE_URL (the documented name) →
+ * VITE_API_URL (kept as an alias) → the Wasmer deployment.
+ */
+const baseUrl =
+  readEnv("VITE_API_BASE_URL") ?? readEnv("VITE_API_URL") ?? DEFAULT_BASE_URL;
+
+/**
+ * Route through the Vite dev server by default while developing.
+ *
+ * The backend only answers browsers whose Origin is in its CORS_ORIGINS list
+ * (currently https://zyrex.vercel.app and https://zyrex.wasmer.app), so a
+ * dev or preview origin is normally rejected before any JSON is readable.
+ * Proxying keeps the request same-origin and sidesteps CORS entirely.
+ * Set VITE_USE_DEV_PROXY=false to call the backend URL directly.
+ */
+const proxySetting = readEnv("VITE_USE_DEV_PROXY");
+const viaProxy = proxySetting === undefined ? import.meta.env.DEV === true : proxySetting === "true";
 
 /** Resolved backend configuration — safe to display in Settings. */
 export const aiBackend = {
@@ -343,22 +359,33 @@ function describeTransportError(error: unknown, url: string): string {
   if (error instanceof DOMException && error.name === "AbortError") {
     return `The request to ZYREX timed out after ${Math.round(aiBackend.timeoutMs / 1000)}s.`;
   }
-  return `Couldn't reach the ZYREX backend at ${url}. It may be offline, or the host may not allow requests from this site (CORS).`;
+  if (viaProxy) {
+    return `Couldn't reach the ZYREX backend at ${aiBackend.baseUrl} through the dev proxy (${url}). Check that the backend is deployed and that VITE_API_BASE_URL is correct.`;
+  }
+  return `Couldn't reach the ZYREX backend at ${aiBackend.baseUrl}. Either it is offline, or this origin is not in the backend's CORS_ORIGINS list (currently https://zyrex.vercel.app and https://zyrex.wasmer.app) — add it and redeploy, or set VITE_USE_DEV_PROXY=true.`;
 }
 
+/** Status codes are documented by the backend — report them precisely. */
 function describeHttpError(status: number, payload: unknown): string {
   const serverReason = pickString(payload, ["reason", "error", "message", "detail"]);
   const suffix = serverReason ? ` — ${serverReason}` : "";
-  if (status === 404) {
-    return `ZYREX backend has no route at ${aiBackend.endpoint} (404).${suffix}`;
+
+  switch (status) {
+    case 400:
+      return `The backend rejected the request (400): the prompt was missing or blank.${suffix}`;
+    case 404:
+      return `No route at ${aiBackend.endpoint} on ${aiBackend.baseUrl} (404). Check VITE_API_BASE_URL and VITE_AI_ENDPOINT.${suffix}`;
+    case 500:
+      return `Backend error (500): it is missing its GROQ_API_KEY configuration.${suffix}`;
+    case 502:
+      return `The AI provider failed (502): unavailable model, rate limit or quota issue, network failure, or an empty response.${suffix}`;
+    case 401:
+    case 403:
+      return `The backend rejected the request (${status}).${suffix}`;
+    default:
+      if (status >= 500) return `Backend server error (${status}).${suffix}`;
+      return `Unexpected response from the backend (${status}).${suffix}`;
   }
-  if (status === 401 || status === 403) {
-    return `ZYREX backend rejected the request (${status}).${suffix}`;
-  }
-  if (status >= 500) {
-    return `ZYREX backend failed with a server error (${status}).${suffix}`;
-  }
-  return `ZYREX backend returned an unexpected response (${status}).${suffix}`;
 }
 
 /* ------------------------------------------------------------- AI request */
@@ -376,6 +403,15 @@ function isResponseBlock(value: unknown): value is ResponseBlock {
  */
 export async function requestAnalysis(request: AnalysisRequest): Promise<AnalysisResult> {
   const url = aiAnswerUrl;
+  const prompt = request.prompt.trim();
+
+  // The backend answers 400 for a blank prompt — catch it before the network.
+  if (!prompt) {
+    return {
+      status: "offline",
+      reason: "Enter a message before sending — the backend rejects a blank prompt.",
+    };
+  }
 
   let response: Response;
   try {
@@ -389,9 +425,14 @@ export async function requestAnalysis(request: AnalysisRequest): Promise<Analysi
           Accept: "application/json, text/plain, */*",
         },
         body: JSON.stringify({
-          prompt: request.prompt,
-          mode: request.mode,
-          history: request.history ?? [],
+          prompt,
+          mode: request.mode || "analyst",
+          // The backend only reads the last 8 turns, and its roles are
+          // "user" | "assistant" — normalize whatever the UI produced.
+          history: (request.history ?? []).slice(-8).map((turn) => ({
+            role: turn.role === "user" ? "user" : "assistant",
+            text: turn.text ?? "",
+          })),
         }),
         signal: controller.signal,
       });
@@ -516,10 +557,14 @@ export async function checkAiBackendHealth(): Promise<BackendHealth> {
     };
   }
 
+  const service = pickString(payload, ["service"]);
+  const version = pickString(payload, ["version"]);
+  const identity = service ? ` (${service}${version ? ` ${version}` : ""})` : "";
+
   return {
     state: "connected",
     label: "Connected",
-    detail: `Backend answered in ${latencyMs}ms. Ready for analysis requests.`,
+    detail: `Backend answered in ${latencyMs}ms${identity}. Reachability only — it does not prove the AI provider key or quota is working.`,
     latencyMs,
     status: response.status,
   };
