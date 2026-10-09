@@ -27,10 +27,15 @@ function isSafeHref(href: string): boolean {
 }
 
 const baseComponents = {
+  /**
+   * react-markdown already strips dangerous protocols (javascript:, data:)
+   * down to an empty href. We additionally refuse to emit an anchor for any
+   * href that isn't provably safe, falling back to plain text — so a hostile
+   * link can never become clickable, even with an empty href.
+   */
   a: ({ node, ...props }: { node?: unknown; href?: string; children?: React.ReactNode }) => {
     const href = props.href;
-    if (!href) return <a {...props} />;
-    if (!isSafeHref(href)) return <span>{props.children}</span>;
+    if (!href || !isSafeHref(href)) return <span>{props.children}</span>;
     return <a {...props} target="_blank" rel="noopener noreferrer" />;
   },
 };
