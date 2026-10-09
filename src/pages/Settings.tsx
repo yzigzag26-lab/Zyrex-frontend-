@@ -17,7 +17,28 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
 }
 
 export function SettingsPage() {
-  const { settings, updateSettings, resetSettings, theme, toggleTheme } = useZyrex();
+  const {
+    settings,
+    updateSettings,
+    resetSettings,
+    theme,
+    toggleTheme,
+    aiStatus,
+    aiStatusDetail,
+    aiStatusLabel,
+    aiBackendUrl,
+    recheckAiConnection,
+  } = useZyrex();
+
+  /**
+   * The AI row reports the live probe result; every other integration is
+   * still genuinely unconnected and says so.
+   */
+  const liveIntegrations = Object.values(integrations).map((integration) =>
+    integration.id === "ai"
+      ? { ...integration, state: aiStatus, statusLabel: aiStatusLabel, detail: aiStatusDetail }
+      : integration,
+  );
 
   return (
     <PageShell
@@ -43,7 +64,7 @@ export function SettingsPage() {
           actions={<Badge tone="neutral">{trades.length} trades available</Badge>}
         />
         <ul className="divide-y divide-line">
-          {Object.values(integrations).map((integration) => (
+          {liveIntegrations.map((integration) => (
             <li key={integration.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5 sm:px-5">
               <div className="min-w-0">
                 <p className="text-[12.5px] font-semibold text-ink">{integration.label}</p>
@@ -54,16 +75,29 @@ export function SettingsPage() {
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <ConnectionPill state={integration.state} label={integration.statusLabel} />
-                <Button size="xs" variant="subtle" icon="external" disabled>
-                  Connect
-                </Button>
+                {integration.id === "ai" ? (
+                  <Button
+                    size="xs"
+                    variant="subtle"
+                    icon="refresh"
+                    onClick={recheckAiConnection}
+                    disabled={aiStatus === "connecting"}
+                  >
+                    Re-check
+                  </Button>
+                ) : (
+                  <Button size="xs" variant="subtle" icon="external" disabled>
+                    Connect
+                  </Button>
+                )}
               </div>
             </li>
           ))}
         </ul>
         <p className="border-t border-line px-4 py-3 text-[10.5px] leading-relaxed text-muted sm:px-5">
-          Connect actions are disabled because this build is frontend-only. When the ZYREX AI
-          backend and data layer are attached, these controls become active.
+          ZYREX AI backend: <span className="z-num text-ink2">{aiBackendUrl}</span> — status is
+          measured live, never assumed. Other integrations have no backend attached yet, so their
+          connect actions stay disabled.
         </p>
       </Panel>
 

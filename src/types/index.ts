@@ -264,6 +264,17 @@ export type AnalysisResult =
   | { status: "offline"; reason: string }
   | { status: "ready"; title: string; blocks: ResponseBlock[] };
 
+/** Payload sent to the ZYREX backend when asking for an answer. */
+export interface AnalysisRequest {
+  prompt: string;
+  mode: AiModeId;
+  /**
+   * Conversation context. The backend's roles are "user" | "assistant" —
+   * "zyrex" is a frontend-only role and must never reach the wire.
+   */
+  history?: Array<{ role: "user" | "assistant"; text?: string }>;
+}
+
 export type ChatRole = "user" | "assistant" | "zyrex";
 
 export interface ChatMessage {
@@ -329,9 +340,16 @@ export interface AppSettings {
   };
 }
 
-export type PageId = "dashboard" | "journal" | "analytics" | "research" | "ai" | "settings";
+export type PageId =
+  | "dashboard"
+  | "journal"
+  | "analytics"
+  | "recent"
+  | "research"
+  | "ai"
+  | "settings";
 
-export type NavIcon = "grid" | "book" | "chart" | "flask" | "spark" | "settings";
+export type NavIcon = "grid" | "book" | "clock" | "chart" | "flask" | "spark" | "settings";
 
 export interface NavItem {
   id: PageId;

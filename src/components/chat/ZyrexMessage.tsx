@@ -11,29 +11,8 @@ import { RiskCard } from "../intelligence/RiskCard";
 import { PsychologyCard } from "../intelligence/PsychologyCard";
 import { PatternCard } from "../intelligence/PatternCard";
 import { CompactTradeTable } from "../intelligence/TradeTable";
+import { Markdown } from "./Markdown";
 import { MessageActions } from "./MessageActions";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-
-/**
- * Normalize escaped Markdown and HTML tags that the AI might return.
- * Only normalizes clear Markdown formatting escapes and basic HTML tags.
- */
-function normalizeMarkdown(text: string): string {
-  return text
-    .replace(/\\\*\*/g, "**")
-    .replace(/\\\*/g, "*")
-    .replace(/\\_/g, "_")
-    .replace(/\\`/g, "`")
-    .replace(/\\#/g, "#")
-    .replace(/\\\[/g, "[")
-    .replace(/\\\]/g, "]")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<div>/gi, "")
-    .replace(/<\/div>/gi, "\n")
-    .replace(/<span[^>]*>/gi, "")
-    .replace(/<\/span>/gi, "");
-}
 
 /* --------------------------------------------------------------------------
  * Block renderer — the contract for real ZYREX AI payloads.
@@ -48,24 +27,7 @@ function BlockRenderer({ block }: { block: ResponseBlock }) {
       return (
         <div className="relative rounded-2xl border border-line bg-surface/60 py-3 pr-4 pl-4 sm:pl-5">
           <span className="absolute top-3.5 bottom-3.5 left-0 w-[2.5px] rounded-full bg-gradient-to-b from-orange-400 via-orange-500 to-amber-500" />
-          <div className="zyrex-markdown">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                a: ({ node, ...props }) => {
-                  const href = props.href;
-                  if (!href) return <a {...props} />;
-                  const safeProtocol = /^(https?:|mailto:)/i.test(href);
-                  if (!safeProtocol) {
-                    return <span>{props.children}</span>;
-                  }
-                  return <a {...props} target="_blank" rel="noopener noreferrer" />;
-                },
-              }}
-            >
-              {normalizeMarkdown(block.text)}
-            </ReactMarkdown>
-          </div>
+          <Markdown>{block.text}</Markdown>
         </div>
       );
 
@@ -83,24 +45,7 @@ function BlockRenderer({ block }: { block: ResponseBlock }) {
               <h4 className="text-[11px] font-semibold tracking-wider text-accent uppercase">
                 {block.title}
               </h4>
-              <div className="zyrex-markdown mt-1.5">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    a: ({ node, ...props }) => {
-                      const href = props.href;
-                      if (!href) return <a {...props} />;
-                      const safeProtocol = /^(https?:|mailto:)/i.test(href);
-                      if (!safeProtocol) {
-                        return <span>{props.children}</span>;
-                      }
-                      return <a {...props} target="_blank" rel="noopener noreferrer" />;
-                    },
-                  }}
-                >
-                  {normalizeMarkdown(block.text)}
-                </ReactMarkdown>
-              </div>
+              <div className="mt-1.5"><Markdown>{block.text}</Markdown></div>
             </div>
           </div>
         </Panel>
@@ -153,23 +98,7 @@ function BlockRenderer({ block }: { block: ResponseBlock }) {
                   {index + 1}
                 </span>
                 <span className="text-[12.5px] leading-relaxed text-ink">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      p: ({ children }) => <>{children}</>,
-                      a: ({ node, ...props }) => {
-                        const href = props.href;
-                        if (!href) return <a {...props} />;
-                        const safeProtocol = /^(https?:|mailto:)/i.test(href);
-                        if (!safeProtocol) {
-                          return <span>{props.children}</span>;
-                        }
-                        return <a {...props} target="_blank" rel="noopener noreferrer" />;
-                      },
-                    }}
-                  >
-                    {normalizeMarkdown(item)}
-                  </ReactMarkdown>
+                  <Markdown inline>{item}</Markdown>
                 </span>
               </li>
             ))}
@@ -185,25 +114,7 @@ function BlockRenderer({ block }: { block: ResponseBlock }) {
             size={12}
             className={cn("mt-0.5 shrink-0", block.tone === "warn" && "text-warn")}
           />
-          <div className="zyrex-markdown">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                p: ({ children }) => <>{children}</>,
-                a: ({ node, ...props }) => {
-                  const href = props.href;
-                  if (!href) return <a {...props} />;
-                  const safeProtocol = /^(https?:|mailto:)/i.test(href);
-                  if (!safeProtocol) {
-                    return <span>{props.children}</span>;
-                  }
-                  return <a {...props} target="_blank" rel="noopener noreferrer" />;
-                },
-              }}
-            >
-              {normalizeMarkdown(block.text)}
-            </ReactMarkdown>
-          </div>
+          <Markdown inline>{block.text}</Markdown>
         </div>
       );
 

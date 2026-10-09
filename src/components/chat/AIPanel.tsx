@@ -1,16 +1,82 @@
 import { useState } from "react";
 import { aiModes } from "../../data/appConfig";
 import { useZyrex } from "../../store/ZyrexProvider";
+import type { ChatMessage, ConnectionState } from "../../types";
 import { cn } from "../../utils/cn";
 import { Icon } from "../ui/Icons";
+import { Markdown } from "./Markdown";
 
 interface AIPanelProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+/** Status dot / label colours for the live backend state. */
+const statusColors: Record<ConnectionState, { dot: string; text: string }> = {
+  connected: { dot: "#34d399", text: "#8de8c7" },
+  connecting: { dot: "#fbbf24", text: "#fcd34d" },
+  error: { dot: "#ff6b6b", text: "#ffb3b3" },
+  disconnected: { dot: "#9b8471", text: "#9b8471" },
+};
+
+/**
+ * Flatten a ZYREX response into Markdown for the compact panel.
+ * The panel shows the answer itself — not just its title.
+ */
+function answerToText(message: ChatMessage): string {
+  if (message.kind === "offline") return message.title ?? "ZYREX AI is unavailable right now.";
+
+  const parts: string[] = [];
+  if (message.title) parts.push(`**${message.title}**`);
+
+  for (const block of message.blocks ?? []) {
+    switch (block.type) {
+      case "summary":
+      case "observation":
+      case "note":
+        parts.push(block.text);
+        break;
+      case "metrics":
+        parts.push(block.rows.map((row) => `- **${row.label}:** ${row.value}`).join("\n"));
+        break;
+      case "risk":
+        parts.push(
+          block.items.map((item) => `- **${item.label}:** ${item.value} — ${item.detail}`).join("\n"),
+        );
+        break;
+      case "psychology":
+        parts.push(
+          block.findings
+            .map((f) => `- **${f.emotion}:** ${f.trades} trades, ${f.winRate}% win rate, ${f.avgR}R`)
+            .join("\n"),
+        );
+        break;
+      case "pattern":
+        parts.push(`**${block.insight.title}**\n\n${block.insight.statement}`);
+        break;
+      case "actions":
+        parts.push(block.items.map((item, index) => `${index + 1}. ${item}`).join("\n"));
+        break;
+      case "trades":
+        if (block.tradeIds.length > 0) parts.push(`Trades: ${block.tradeIds.join(", ")}`);
+        break;
+    }
+  }
+
+  return parts.filter(Boolean).join("\n\n");
+}
+
 export function AIPanel({ isOpen, onClose }: AIPanelProps) {
-  const { mode, setMode, sendMessage, phase, activeConversation } = useZyrex();
+  const {
+    mode,
+    setMode,
+    sendMessage,
+    phase,
+    activeConversation,
+    aiStatus,
+    aiStatusDetail,
+    aiStatusLabel,
+  } = useZyrex();
   const [input, setInput] = useState("");
 
   const handleSend = () => {
@@ -60,9 +126,22 @@ export function AIPanel({ isOpen, onClose }: AIPanelProps) {
           <h2 className="m-0 text-[14.5px] font-bold tracking-tight" style={{ color: "var(--ai-ink)" }}>
             ZYREX AI
           </h2>
-          <div className="ai-status flex items-center gap-1.5 mt-0.5 text-[11.5px] text-[#8de8c7]">
-            <i className="size-1.5 rounded-full bg-[#34d399] shadow-[0_0_8px_#34d399] animate-blink" />
-            <span>Online</span>
+          <div
+            className="ai-status flex items-center gap-1.5 mt-0.5 text-[11.5px]"
+            style={{ color: statusColors[aiStatus].text }}
+            title={aiStatusDetail}
+          >
+            <i
+              className={cn(
+                "size-1.5 rounded-full",
+                aiStatus === "connected" && "animate-blink",
+              )}
+              style={{
+                background: statusColors[aiStatus].dot,
+                boxShadow: `0 0 8px ${statusColors[aiStatus].dot}`,
+              }}
+            />
+            <span>{aiStatusLabel}</span>
           </div>
         </div>
 
@@ -84,7 +163,7 @@ export function AIPanel({ isOpen, onClose }: AIPanelProps) {
           <button
             key={aiMode.id}
             type="button"
-            onClick={() => setMode(aiMode)}
+            onClick={() => setMode(aiMode.id)}
             className={cn(
               "ai-chip flex-none inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-2 rounded-full cursor-pointer border transition-all",
               mode.id === aiMode.id
@@ -111,26 +190,38 @@ export function AIPanel({ isOpen, onClose }: AIPanelProps) {
             Hi! I'm ZYREX AI. How can I help you with your trading today?
           </div>
         ) : (
-          displayMessages.map((message) => (
-            <div
-              key={message.id}
-              className={cn(
-                "ai-bubble text-[13.2px] leading-relaxed max-w-[88%] px-3 py-2.5 rounded-[14px]",
-                message.role === "user" ? "user self-end" : "bot self-start"
-              )}
-              style={{
-                color: message.role === "user" ? "#fff6ec" : "#f0e6dc",
-                background: message.role === "user"
-                  ? "linear-gradient(135deg, rgb(255 106 0 / 0.6), rgb(255 61 94 / 0.42))"
-                  : "rgba(255, 255, 255, 0.06)",
-                border: "1px solid var(--ai-line)",
-                borderBottomRightRadius: message.role === "user" ? "5px" : "14px",
-                borderBottomLeftRadius: message.role === "user" ? "14px" : "5px",
-              }}
-            >
-              {message.text || message.title}
-            </div>
-          ))
+          displayMessages.map((message) =>
+            message.role === "user" ? (
+              <div
+                key={message.id}
+                className="ai-bubble text-[13.2px] leading-relaxed max-w-[88%] px-3 py-2.5 rounded-[14px] user self-end"
+                style={{
+                  color: "#fff6ec",
+                  background:
+                    "linear-gradient(135deg, rgb(255 106 0 / 0.6), rgb(255 61 94 / 0.42))",
+                  border: "1px solid var(--ai-line)",
+                  borderBottomRightRadius: "5px",
+                  borderBottomLeftRadius: "14px",
+                }}
+              >
+                {message.text}
+              </div>
+            ) : (
+              <div
+                key={message.id}
+                className="ai-bubble text-[13.2px] leading-relaxed max-w-[96%] px-3 py-2.5 rounded-[14px] bot self-start"
+                style={{
+                  color: "#f0e6dc",
+                  background: "rgba(255, 255, 255, 0.06)",
+                  border: "1px solid var(--ai-line)",
+                  borderBottomRightRadius: "14px",
+                  borderBottomLeftRadius: "5px",
+                }}
+              >
+                <Markdown>{answerToText(message)}</Markdown>
+              </div>
+            ),
+          )
         )}
         {phase === "thinking" && (
           <div className="ai-typing flex gap-1 self-start px-3 py-3" style={{

@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { emptyCopy, product } from "../../data/appConfig";
+import { healthLabel } from "../../lib/zyrexApi";
 import { useZyrex } from "../../store/ZyrexProvider";
+import type { ConnectionState } from "../../types";
 import { ZyrexLogo } from "../brand/ZyrexLogo";
 import { Badge, Button, IconButton } from "../ui/Controls";
 import { ConnectionPill } from "../ui/EmptyStates";
@@ -12,7 +14,7 @@ import { UserMessage } from "./UserMessage";
 import { ZyrexMessage } from "./ZyrexMessage";
 
 /** Empty chat state — ZYREX introduces itself and reports its real status. */
-function HeroState() {
+function HeroState({ aiStatus }: { aiStatus: ConnectionState }) {
   return (
     <div className="flex flex-col items-center py-4 text-center sm:py-10">
       <div className="relative">
@@ -30,7 +32,10 @@ function HeroState() {
         <Badge tone="accent" icon="spark">
           {product.name}
         </Badge>
-        <ConnectionPill state="connected" label="Groq Ready" />
+        <ConnectionPill
+          state={aiStatus}
+          label={aiStatus === "connected" ? "ZYREX Online" : healthLabel(aiStatus)}
+        />
       </div>
 
       <div className="mt-8 w-full">
@@ -49,6 +54,8 @@ export function ChatWindow() {
     startNewConversation,
     hasTradeData,
     mode,
+    aiStatus,
+    recheckAiConnection,
   } = useZyrex();
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -77,7 +84,14 @@ export function ChatWindow() {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          <ConnectionPill state="connected" label="Groq" className="hidden sm:inline-flex" />
+          <button
+            type="button"
+            onClick={recheckAiConnection}
+            title="Re-check the backend connection"
+            className="hidden sm:inline-flex"
+          >
+            <ConnectionPill state={aiStatus} label={healthLabel(aiStatus)} />
+          </button>
           <IconButton
             name="trash"
             label="Clear conversation"
@@ -110,7 +124,7 @@ export function ChatWindow() {
             </div>
           ) : (
             <>
-              <HeroState />
+              <HeroState aiStatus={aiStatus} />
               {phase === "connecting" && <ConnectionIndicator />}
               {!hasTradeData && (
                 <p className="mt-6 text-center text-[10.5px] leading-relaxed text-muted">

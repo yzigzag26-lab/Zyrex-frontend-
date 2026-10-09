@@ -9,17 +9,20 @@ import {
 } from "react";
 import { aiModes, defaultSettings } from "../data/appConfig";
 import { requestAnalysis, trades as datasetTrades } from "../data/dataset";
+import { aiBackend, checkAiBackendHealth, healthLabel } from "../lib/zyrexApi";
 import type {
   AiMode,
   AiModeId,
   AppSettings,
   ChatMessage,
+  ConnectionState,
   Conversation,
   PageId,
   Theme,
 } from "../types";
 import { createId } from "../utils/format";
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import { responseToText } from "../utils/responseText";
 import { useMediaQuery } from "../hooks/useElementSize";
 
 /** Chat phase for the live request lifecycle. */
@@ -48,10 +51,19 @@ interface ZyrexContextValue {
   /* data availability (drives every empty state) */
   hasTradeData: boolean;
 
+  /* live backend connection (probed against the real endpoint) */
+  aiStatus: ConnectionState;
+  aiStatusDetail: string;
+  aiStatusLabel: string;
+  aiBackendUrl: string;
+  recheckAiConnection: () => void;
+
   /* conversations */
   conversations: Conversation[];
   activeConversationId: string | null;
   activeConversation: Conversation | null;
+  /** Messages of the active conversation (empty when none is selected). */
+  messages: ChatMessage[];
   selectConversation: (id: string) => void;
   startNewConversation: () => void;
   clearActiveConversation: () => void;
@@ -93,6 +105,12 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<ChatPhase>("idle");
   const [promptNotice, setPromptNotice] = useState<string | null>(null);
 
+  /* live AI backend connection ------------------------------------------ */
+  const [aiStatus, setAiStatus] = useState<ConnectionState>("connecting");
+  const [aiStatusDetail, setAiStatusDetail] = useState<string>(
+    `Probing ${aiBackend.baseUrl}${aiBackend.healthEndpoint}…`,
+  );
+
   const [settings, setSettings] = useLocalStorage<AppSettings>("zyrex.settings", defaultSettings);
 
   /* theme -------------------------------------------------------------- */
@@ -120,6 +138,8 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
     () => conversations.find((c) => c.id === activeId) ?? null,
     [conversations, activeId],
   );
+
+  const messages = useMemo(() => activeConversation?.messages ?? [], [activeConversation]);
 
   /* navigation ---------------------------------------------------------- */
   const navigate = useCallback((next: PageId) => {
@@ -169,6 +189,24 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
 
   const clearPromptNotice = useCallback(() => setPromptNotice(null), []);
 
+  /* ---------------------------------------------------- backend connection */
+  /**
+   * Probes the real backend endpoint. Every "connected / offline" surface
+   * reads this result, so it only reports success when the backend answered.
+   */
+  const recheckAiConnection = useCallback(() => {
+    setAiStatus("connecting");
+    setAiStatusDetail(`Probing ${aiBackend.baseUrl}${aiBackend.healthEndpoint}…`);
+    void checkAiBackendHealth().then((health) => {
+      setAiStatus(health.state);
+      setAiStatusDetail(health.detail);
+    });
+  }, []);
+
+  useEffect(() => {
+    recheckAiConnection();
+  }, [recheckAiConnection]);
+
   /* chat ---------------------------------------------------------------- */
   /**
    * Sends a prompt to the ZYREX AI backend through `requestAnalysis`.
@@ -208,20 +246,34 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
       }
 
       setPage("ai");
-      setPhase("thinking");
+      setPhase("connecting");
 
-      const history = activeConversation?.messages.slice(-6) ?? [];
+      const history = activeConversation?.messages.slice(-8) ?? [];
 
       window.setTimeout(() => {
+        setPhase("thinking");
         void requestAnalysis({
           prompt: text,
           mode: modeId,
-          history: history.map((message) => ({
-            role: message.role === "user" ? "user" : "zyrex",
-            text: message.text ?? message.title ?? "",
-          })),
+          history: history.map((message) =>
+            message.role === "user"
+              ? { role: "user" as const, text: message.text ?? "" }
+              : {
+                  // The backend expects "assistant"; "zyrex" is UI-only.
+                  role: "assistant" as const,
+                  text: responseToText(message.title ?? "ZYREX Analysis", message.blocks ?? []),
+                },
+          ),
         })
           .then((result) => {
+            if (result.status === "ready") {
+              setAiStatus("connected");
+              setAiStatusDetail("Backend answered the last analysis request.");
+            } else {
+              setAiStatus("error");
+              setAiStatusDetail(result.reason);
+            }
+
             const message: ChatMessage =
               result.status === "ready"
                 ? {
@@ -249,6 +301,10 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
             }));
           })
           .catch(() => {
+            setAiStatus("disconnected");
+            setAiStatusDetail(
+              `Couldn't reach ${aiBackend.baseUrl}. It may be offline or blocking cross-origin requests.`,
+            );
             patchConversation(conversationId as string, (c) => ({
               ...c,
               updatedAt: "Just now",
@@ -309,9 +365,15 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
     mode,
     setMode: setModeId,
     hasTradeData,
+    aiStatus,
+    aiStatusDetail,
+    aiStatusLabel: healthLabel(aiStatus),
+    aiBackendUrl: aiBackend.baseUrl,
+    recheckAiConnection,
     conversations,
     activeConversationId: activeId,
     activeConversation,
+    messages,
     selectConversation,
     startNewConversation,
     clearActiveConversation,
