@@ -8,21 +8,31 @@
  *   POST  {baseUrl}/api/zyrex-ai     →  an AI answer for a prompt
  *   GET   {baseUrl}/api/health        →  reachability / readiness probe
  *
- * AI answer contract (confirmed):
- *   request   { prompt: string, mode?: string, history?: [...] }
- *   response  the answer is returned in `blocks`, which may be an array of
- *             plain strings, { title, text } chunks, { items: [...] } lists,
- *             or fully structured ResponseBlock objects.
+ * AI answer contract:
+ *   request   { prompt, mode?, history? }
+ *             history entries are { role: "user" | "assistant", text };
+ *             the backend reads at most the last 8.
+ *   response  200 → { status: "ready", title, blocks: ResponseBlock[] }
+ *             the answer is rendered from `blocks` (typically the summary
+ *             block's `text`, which may contain Markdown). There is no
+ *             top-level `answer` property and the endpoint does not stream.
+ *   errors    { status: "offline", reason } — 400 blank/invalid body,
+ *             404 unknown route, 500 missing GROQ_API_KEY, 502 provider
+ *             failure / rate limit / quota / empty response.
  *
  * Everything is configurable from the environment so the same build can point
  * at a local server, a staging box or production:
  *
- *   VITE_API_URL           Backend origin. Default: the Wasmer deployment.
+ *   VITE_API_BASE_URL      Backend origin (scheme + host, no path).
+ *                          Default: the Wasmer deployment.
+ *   VITE_API_URL           Alias for the above.
  *   VITE_AI_ENDPOINT       Path for an AI answer.       Default: /api/zyrex-ai
  *   VITE_HEALTH_ENDPOINT   Path for the health probe.   Default: /api/health
  *   VITE_AI_TIMEOUT_MS     Abort timeout in ms.         Default: 30000
- *   VITE_USE_DEV_PROXY     "true" → call /api/... on the Vite dev server and
- *                          let it proxy to the backend (use if CORS blocks).
+ *   VITE_USE_DEV_PROXY     "false" → call the backend URL directly.
+ *                          Default: on while running the dev server, because
+ *                          the backend only allows a fixed list of browser
+ *                          origins and rejects everything else via CORS.
  *
  * The backend is treated as the only source of intelligence: if it cannot be
  * reached, or returns something we cannot read, this module reports `offline`
