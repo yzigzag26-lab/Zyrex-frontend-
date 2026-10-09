@@ -19,6 +19,12 @@ import type {
  * Anything that represents real trading intelligence lives in `dataset.ts`.
  */
 
+/**
+ * A backend endpoint is configured in code. Whether it is actually reachable
+ * is measured at runtime by `src/lib/zyrexApi.ts` and exposed as
+ * `useZyrex().aiStatus` — this static entry must never claim a live
+ * connection on its own.
+ */
 const hasAiBackend = true;
 
 export const product = {
@@ -41,9 +47,11 @@ export const integrations: Record<IntegrationPoint["id"], IntegrationPoint> = {
   ai: {
     id: "ai",
     label: "ZYREX AI Backend",
-    state: hasAiBackend ? "connected" : "disconnected",
-    statusLabel: hasAiBackend ? "Connected" : "Offline",
-    detail: hasAiBackend ? "Backend configured and ready for analysis requests." : "No analysis endpoint configured.",
+    state: hasAiBackend ? "connecting" : "disconnected",
+    statusLabel: hasAiBackend ? "Checking" : "Offline",
+    detail: hasAiBackend
+      ? "Endpoint configured. Live status is probed on load — see the chat header and Settings."
+      : "No analysis endpoint configured.",
     requiredFor: "Trade analysis, psychology analysis, pattern detection and research answers.",
   },
   tradeData: {

@@ -1,5 +1,6 @@
 import type { ChatMessage, ResponseBlock } from "../../types";
-import { aiModes, getTradeById } from "../../data/mockData";
+import { aiModes } from "../../data/appConfig";
+import { getTradeById } from "../../data/dataset";
 import { cn } from "../../utils/cn";
 import { ZyrexLogo } from "../brand/ZyrexLogo";
 import { Badge, Panel } from "../ui/Controls";
@@ -9,6 +10,7 @@ import { RiskCard } from "../intelligence/RiskCard";
 import { PsychologyCard } from "../intelligence/PsychologyCard";
 import { PatternCard } from "../intelligence/PatternCard";
 import { CompactTradeTable } from "../intelligence/TradeTable";
+import { Markdown } from "./Markdown";
 import { ResponseActions } from "./ResponseActions";
 
 /** Flatten a structured response into plain text for the copy action. */
@@ -73,7 +75,7 @@ function BlockRenderer({ block }: { block: ResponseBlock }) {
       return (
         <div className="relative rounded-2xl border border-line bg-surface/60 py-3 pr-4 pl-4 sm:pl-5">
           <span className="absolute top-3.5 bottom-3.5 left-0 w-[2.5px] rounded-full bg-gradient-to-b from-orange-400 via-orange-500 to-amber-500" />
-          <p className="text-[13.5px] leading-relaxed text-ink">{block.text}</p>
+          <Markdown>{block.text}</Markdown>
         </div>
       );
 
@@ -91,7 +93,7 @@ function BlockRenderer({ block }: { block: ResponseBlock }) {
               <h4 className="text-[11px] font-semibold tracking-wider text-accent uppercase">
                 {block.title}
               </h4>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-ink">{block.text}</p>
+              <div className="mt-1.5"><Markdown>{block.text}</Markdown></div>
             </div>
           </div>
         </Panel>
@@ -140,7 +142,7 @@ function BlockRenderer({ block }: { block: ResponseBlock }) {
                 <span className="z-num mt-px grid size-5 shrink-0 place-items-center rounded-md border border-line bg-surface2 text-[10px] font-semibold text-ink2">
                   {index + 1}
                 </span>
-                <span className="text-[12.5px] leading-relaxed text-ink">{item}</span>
+                <Markdown inline>{item}</Markdown>
               </li>
             ))}
           </ol>
@@ -155,7 +157,7 @@ function BlockRenderer({ block }: { block: ResponseBlock }) {
             size={12}
             className={cn("mt-0.5 shrink-0", block.tone === "warn" && "text-warn")}
           />
-          {block.text}
+          <Markdown inline>{block.text}</Markdown>
         </p>
       );
 

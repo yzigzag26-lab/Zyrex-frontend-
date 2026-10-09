@@ -61,6 +61,8 @@ interface ZyrexContextValue {
   conversations: Conversation[];
   activeConversationId: string | null;
   activeConversation: Conversation | null;
+  /** Messages of the active conversation (empty when none is selected). */
+  messages: ChatMessage[];
   selectConversation: (id: string) => void;
   startNewConversation: () => void;
   clearActiveConversation: () => void;
@@ -135,6 +137,8 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
     () => conversations.find((c) => c.id === activeId) ?? null,
     [conversations, activeId],
   );
+
+  const messages = useMemo(() => activeConversation?.messages ?? [], [activeConversation]);
 
   /* navigation ---------------------------------------------------------- */
   const navigate = useCallback((next: PageId) => {
@@ -363,6 +367,7 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
     conversations,
     activeConversationId: activeId,
     activeConversation,
+    messages,
     selectConversation,
     startNewConversation,
     clearActiveConversation,

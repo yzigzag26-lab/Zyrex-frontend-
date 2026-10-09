@@ -336,9 +336,16 @@ export interface AppSettings {
   };
 }
 
-export type PageId = "dashboard" | "journal" | "analytics" | "research" | "ai" | "settings";
+export type PageId =
+  | "dashboard"
+  | "journal"
+  | "analytics"
+  | "recent"
+  | "research"
+  | "ai"
+  | "settings";
 
-export type NavIcon = "grid" | "book" | "chart" | "flask" | "spark" | "settings";
+export type NavIcon = "grid" | "book" | "clock" | "chart" | "flask" | "spark" | "settings";
 
 export interface NavItem {
   id: PageId;

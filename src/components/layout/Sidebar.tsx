@@ -4,9 +4,10 @@ import { cn } from "../../utils/cn";
 import { ZyrexLogo } from "../brand/ZyrexLogo";
 import { IconButton } from "../ui/Controls";
 import { Icon } from "../ui/Icons";
+import { ChatHistory } from "./ChatHistory";
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
-  const { page, navigate, phase } = useZyrex();
+  const { page, navigate, phase, aiStatus, aiStatusDetail, aiStatusLabel } = useZyrex();
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
@@ -77,10 +78,25 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </ul>
       </nav>
 
+      {/* Past sessions — selectable and deletable. */}
+      <ChatHistory />
+
       <div className="border-t border-line px-4 py-3">
-        <p className="text-[10px] leading-relaxed text-muted">
-          <span className="font-semibold text-ink2">Awaiting connection.</span> No exchange, data
-          source or AI backend is linked to this workspace yet.
+        <p className="flex items-start gap-1.5 text-[10px] leading-relaxed text-muted">
+          <Icon
+            name={aiStatus === "connected" ? "check" : aiStatus === "error" ? "alert" : "info"}
+            size={11}
+            className={cn(
+              "mt-px shrink-0",
+              aiStatus === "connected" ? "text-pos" : aiStatus === "error" ? "text-neg" : "text-muted",
+            )}
+          />
+          <span>
+            <span className="font-semibold text-ink2">{aiStatusLabel}.</span>{" "}
+            {aiStatus === "connected"
+              ? "ZYREX AI backend is linked. No exchange or trade data source is connected yet."
+              : aiStatusDetail}
+          </span>
         </p>
       </div>
     </div>

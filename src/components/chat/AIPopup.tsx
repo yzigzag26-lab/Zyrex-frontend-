@@ -16,7 +16,7 @@ interface AIPopupProps {
 }
 
 export function AIPopup({ isOpen, onClose }: AIPopupProps) {
-  const { mode, setMode, messages, phase, activeConversation } = useZyrex();
+  const { mode, setMode, messages, phase } = useZyrex();
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export function AIPopup({ isOpen, onClose }: AIPopupProps) {
 
   if (!isOpen) return null;
 
-  const displayMessages = activeConversation?.messages || messages || [];
+  const displayMessages = messages;
 
   return (
     <div
@@ -65,7 +65,7 @@ export function AIPopup({ isOpen, onClose }: AIPopupProps) {
               <button
                 key={aiMode.id}
                 type="button"
-                onClick={() => setMode(aiMode)}
+                onClick={() => setMode(aiMode.id)}
                 className={cn(
                   "flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
                   mode.id === aiMode.id
@@ -104,10 +104,10 @@ export function AIPopup({ isOpen, onClose }: AIPopupProps) {
             ) : (
               <div className="space-y-4">
                 {displayMessages.map((message) =>
-                  message.role === "assistant" ? (
-                    <AIMessage key={message.id} message={message} />
-                  ) : (
+                  message.role === "user" ? (
                     <UserMessage key={message.id} message={message} />
+                  ) : (
+                    <AIMessage key={message.id} message={message} />
                   )
                 )}
                 {phase === "thinking" && <ThinkingIndicator />}

@@ -11,6 +11,7 @@ import type {
   Trade,
 } from "../types";
 import { integrations } from "./appConfig";
+import { aiBackend } from "../lib/zyrexApi";
 
 /**
  * ============================================================================
@@ -30,9 +31,13 @@ import { integrations } from "./appConfig";
 
 /* --------------------------------------------------------------- connection */
 
-/** Aggregate readiness flags derived from the integration registry. */
+/**
+ * Aggregate readiness flags derived from the integration registry.
+ * `aiConnected` reflects configuration only — the live, measured state is
+ * `useZyrex().aiStatus` (a real probe, never an assumption).
+ */
 export const connection = {
-  aiConnected: true,
+  aiConnected: Boolean(aiBackend.baseUrl),
   tradeDataConnected: integrations.tradeData.state === "connected",
   accountConnected: integrations.account.state === "connected",
   notificationsConnected: integrations.notifications.state === "connected",

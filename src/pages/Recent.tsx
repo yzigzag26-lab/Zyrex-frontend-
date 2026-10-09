@@ -1,4 +1,3 @@
-import { emptyCopy } from "../data/appConfig";
 import { useZyrex } from "../store/ZyrexProvider";
 import { PageShell } from "../components/layout/PageShell";
 import { DataUnavailable } from "../components/ui/EmptyStates";

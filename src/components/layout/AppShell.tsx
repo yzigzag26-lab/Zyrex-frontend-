@@ -1,15 +1,23 @@
 import { useZyrex } from "../../store/ZyrexProvider";
+import type { PageId } from "../../types";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { Dashboard } from "../../pages/Dashboard";
 import { JournalPage } from "../../pages/Journal";
 import { Recent } from "../../pages/Recent";
 import { SettingsPage } from "../../pages/Settings";
+import { Analytics } from "../../pages/Analytics";
+import { Research } from "../../pages/Research";
+import { AIPage } from "../../pages/AI";
 import { AIFloatingButton } from "../chat/AIFloatingButton";
 import { AIPanel } from "../chat/AIPanel";
 import { cn } from "../../utils/cn";
 
-function renderPage(page: string) {
+/**
+ * Every PageId maps to its own screen. Typing the parameter means a new page
+ * cannot be added to navigation without being routed here.
+ */
+function renderPage(page: PageId) {
   switch (page) {
     case "journal":
       return <JournalPage />;
@@ -17,8 +25,13 @@ function renderPage(page: string) {
       return <Recent />;
     case "settings":
       return <SettingsPage />;
+    case "analytics":
+      return <Analytics />;
+    case "research":
+      return <Research />;
+    case "ai":
+      return <AIPage />;
     case "dashboard":
-    default:
       return <Dashboard />;
   }
 }
