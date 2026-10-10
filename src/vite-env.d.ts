@@ -16,6 +16,11 @@ interface ImportMetaEnv {
   readonly VITE_AI_TIMEOUT_MS?: string;
   /** "true" → send /api/... to the Vite dev server, which proxies to the backend. */
   readonly VITE_USE_DEV_PROXY?: string;
+  /**
+   * "true" → call relative /api paths in production too (pair with vercel.json).
+   * This is the CORS escape hatch when the backend has not allow-listed this origin.
+   */
+  readonly VITE_USE_PROXY?: string;
 }
 
 interface ImportMeta {

@@ -17,8 +17,10 @@
  *             block's `text`, which may contain Markdown). There is no
  *             top-level `answer` property and the endpoint does not stream.
  *   errors    { status: "offline", reason } — 400 blank/invalid body,
- *             404 unknown route, 500 missing GROQ_API_KEY, 502 provider
- *             failure / rate limit / quota / empty response.
+ *             404 unknown route, 500 missing GROQ_API_KEY (AI endpoint
+ *             only; a health 500 usually means a committed fix has not
+ *             been redeployed), 502 provider failure / rate limit /
+ *             quota / empty response.
  *
  * Everything is configurable from the environment so the same build can point
  * at a local server, a staging box or production:
@@ -33,6 +35,9 @@
  *                          Default: on while running the dev server, because
  *                          the backend only allows a fixed list of browser
  *                          origins and rejects everything else via CORS.
+ *   VITE_USE_PROXY         "true" → call relative /api paths in production
+ *                          too. Pair with vercel.json so the host rewrites
+ *                          /api/* to the backend and CORS never applies.
  *
  * The backend is treated as the only source of intelligence: if it cannot be
  * reached, or returns something we cannot read, this module reports `offline`
@@ -69,15 +74,19 @@ const baseUrl =
   readEnv("VITE_API_BASE_URL") ?? readEnv("VITE_API_URL") ?? DEFAULT_BASE_URL;
 
 /**
- * Route through the Vite dev server by default while developing.
+ * Route through a same-origin /api path when a proxy is in front of us.
  *
  * The backend only answers browsers whose Origin is in its CORS_ORIGINS list
- * (currently https://zyrex.vercel.app and https://zyrex.wasmer.app), so a
- * dev or preview origin is normally rejected before any JSON is readable.
- * Proxying keeps the request same-origin and sidesteps CORS entirely.
- * Set VITE_USE_DEV_PROXY=false to call the backend URL directly.
+ * (currently https://zyrex.vercel.app and https://zyrex.wasmer.app), so any
+ * other origin is rejected before JSON is readable.
+ *
+ * - Dev: on by default (Vite proxies /api → VITE_API_BASE_URL).
+ * - Production: off by default. Set VITE_USE_PROXY=true when deploying
+ *   behind vercel.json (or any host that rewrites /api/* to the backend).
+ *
+ * VITE_USE_DEV_PROXY=false / VITE_USE_PROXY=false opts out.
  */
-const proxySetting = readEnv("VITE_USE_DEV_PROXY");
+const proxySetting = readEnv("VITE_USE_PROXY") ?? readEnv("VITE_USE_DEV_PROXY");
 const viaProxy = proxySetting === undefined ? import.meta.env.DEV === true : proxySetting === "true";
 
 /** Resolved backend configuration — safe to display in Settings. */
@@ -370,25 +379,36 @@ function describeTransportError(error: unknown, url: string): string {
     return `The request to ZYREX timed out after ${Math.round(aiBackend.timeoutMs / 1000)}s.`;
   }
   if (viaProxy) {
-    return `Couldn't reach the ZYREX backend at ${aiBackend.baseUrl} through the dev proxy (${url}). Check that the backend is deployed and that VITE_API_BASE_URL is correct.`;
+    const through = import.meta.env.DEV ? "the Vite dev proxy" : "the same-origin /api proxy";
+    return `Couldn't reach the ZYREX backend at ${aiBackend.baseUrl} through ${through} (${url}). Check that the backend is deployed and that VITE_API_BASE_URL is correct.`;
   }
-  return `Couldn't reach the ZYREX backend at ${aiBackend.baseUrl}. Either it is offline, or this origin is not in the backend's CORS_ORIGINS list (currently https://zyrex.vercel.app and https://zyrex.wasmer.app) — add it and redeploy, or set VITE_USE_DEV_PROXY=true.`;
+  return `Couldn't reach the ZYREX backend at ${aiBackend.baseUrl}. Either it is offline, or this origin is not in the backend's CORS_ORIGINS list (currently https://zyrex.vercel.app and https://zyrex.wasmer.app) — add it and redeploy, or set VITE_USE_PROXY=true (Vercel rewrite) / VITE_USE_DEV_PROXY=true (local).`;
 }
 
+type ProbeKind = "health" | "answer";
+
 /** Status codes are documented by the backend — report them precisely. */
-function describeHttpError(status: number, payload: unknown): string {
+function describeHttpError(status: number, payload: unknown, kind: ProbeKind = "answer"): string {
   const serverReason = pickString(payload, ["reason", "error", "message", "detail"]);
   const suffix = serverReason ? ` — ${serverReason}` : "";
+  const path = kind === "health" ? aiBackend.healthEndpoint : aiBackend.endpoint;
+  const pathVar = kind === "health" ? "VITE_HEALTH_ENDPOINT" : "VITE_AI_ENDPOINT";
 
   switch (status) {
     case 400:
-      return `The backend rejected the request (400): the prompt was missing or blank.${suffix}`;
+      return kind === "health"
+        ? `The backend rejected the health probe (400).${suffix}`
+        : `The backend rejected the request (400): the prompt was missing or blank.${suffix}`;
     case 404:
-      return `No route at ${aiBackend.endpoint} on ${aiBackend.baseUrl} (404). Check VITE_API_BASE_URL and VITE_AI_ENDPOINT.${suffix}`;
+      return `No route at ${path} on ${aiBackend.baseUrl} (404). Check VITE_API_BASE_URL and ${pathVar}.${suffix}`;
     case 500:
-      return `Backend error (500): it is missing its GROQ_API_KEY configuration.${suffix}`;
+      return kind === "health"
+        ? `Backend error (500): the app is deployed but erroring — often a fix that has been committed but not redeployed yet.${suffix}`
+        : `Backend error (500): it is missing its GROQ_API_KEY configuration.${suffix}`;
     case 502:
-      return `The AI provider failed (502): unavailable model, rate limit or quota issue, network failure, or an empty response.${suffix}`;
+      return kind === "health"
+        ? `The health probe failed (502).${suffix}`
+        : `The AI provider failed (502): unavailable model, rate limit or quota issue, network failure, or an empty response.${suffix}`;
     case 401:
     case 403:
       return `The backend rejected the request (${status}).${suffix}`;
@@ -457,7 +477,7 @@ export async function requestAnalysis(request: AnalysisRequest): Promise<Analysi
   const payload = parseJson(raw);
 
   if (!response.ok) {
-    return { status: "offline", reason: describeHttpError(response.status, payload) };
+    return { status: "offline", reason: describeHttpError(response.status, payload, "answer") };
   }
 
   // Backend explicitly reports it cannot answer.
@@ -548,7 +568,7 @@ export async function checkAiBackendHealth(): Promise<BackendHealth> {
     return {
       state: "error",
       label: response.status === 404 ? "No route" : "Error",
-      detail: describeHttpError(response.status, payload),
+      detail: describeHttpError(response.status, payload, "health"),
       latencyMs,
       status: response.status,
     };
@@ -571,10 +591,14 @@ export async function checkAiBackendHealth(): Promise<BackendHealth> {
   const version = pickString(payload, ["version"]);
   const identity = service ? ` (${service}${version ? ` ${version}` : ""})` : "";
 
+  const corsNote = viaProxy
+    ? "Reachability only — it does not prove the AI provider key or quota is working."
+    : "A successful GET does not prove the POST preflight will pass (CORS), or that the AI provider key and quota work.";
+
   return {
     state: "connected",
     label: "Connected",
-    detail: `Backend answered in ${latencyMs}ms${identity}. Reachability only — it does not prove the AI provider key or quota is working.`,
+    detail: `Backend answered GET ${aiBackend.healthEndpoint} in ${latencyMs}ms${identity}. ${corsNote}`,
     latencyMs,
     status: response.status,
   };

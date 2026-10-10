@@ -25,8 +25,11 @@ export default defineConfig(({ mode }) => {
    * https://zyrex.wasmer.app). A dev/preview origin is therefore rejected
    * before any JSON can be read. Proxying through the dev server keeps the
    * call same-origin. Set VITE_USE_DEV_PROXY=false to opt out.
+   *
+   * Production CORS escape hatch is separate: build with VITE_USE_PROXY=true
+   * and deploy on Vercel so vercel.json rewrites /api/* to the backend.
    */
-  const proxySetting = env.VITE_USE_DEV_PROXY;
+  const proxySetting = env.VITE_USE_DEV_PROXY || env.VITE_USE_PROXY;
   const useDevProxy = proxySetting === undefined || proxySetting === "" ? true : proxySetting === "true";
 
   return {
