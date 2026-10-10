@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "verify:backend": "node scripts/verify-backend.mjs"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
