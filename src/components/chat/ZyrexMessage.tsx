@@ -14,7 +14,7 @@ export function ZyrexMessage({ message }: { message: ChatMessage }) {
       <div className="size-7 rounded-full bg-[#171717] border border-[#424242] flex items-center justify-center shrink-0 text-white font-bold text-xs mt-0.5">
         Z
       </div>
-      <div className="flex-1 min-w-0 text-white text-sm leading-relaxed prose prose-invert max-w-none">
+      <div className="ai-reply flex-1 min-w-0 text-white text-sm leading-relaxed max-w-none">
         <Markdown>{text}</Markdown>
       </div>
     </div>
