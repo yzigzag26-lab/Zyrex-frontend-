@@ -637,6 +637,52 @@
 }
 
 /* ==========================================================================
+   AI reply text - the chat surface is dark, so everything ZYREX renders or
+   streams back is pure white (the light-theme ink/accent tokens above would
+   paint it near-black and unreadable on #212121).
+   ========================================================================== */
+.ai-reply .zyrex-markdown,
+.ai-reply .zyrex-markdown p,
+.ai-reply .zyrex-markdown span,
+.ai-reply .zyrex-markdown li,
+.ai-reply .zyrex-markdown dt,
+.ai-reply .zyrex-markdown dd,
+.ai-reply .zyrex-markdown h1,
+.ai-reply .zyrex-markdown h2,
+.ai-reply .zyrex-markdown h3,
+.ai-reply .zyrex-markdown h4,
+.ai-reply .zyrex-markdown h5,
+.ai-reply .zyrex-markdown h6,
+.ai-reply .zyrex-markdown strong,
+.ai-reply .zyrex-markdown b,
+.ai-reply .zyrex-markdown em,
+.ai-reply .zyrex-markdown i,
+.ai-reply .zyrex-markdown del,
+.ai-reply .zyrex-markdown s,
+.ai-reply .zyrex-markdown a,
+.ai-reply .zyrex-markdown code,
+.ai-reply .zyrex-markdown pre,
+.ai-reply .zyrex-markdown pre code,
+.ai-reply .zyrex-markdown kbd,
+.ai-reply .zyrex-markdown blockquote,
+.ai-reply .zyrex-markdown caption,
+.ai-reply .zyrex-markdown th,
+.ai-reply .zyrex-markdown td {
+  color: #ffffff;
+}
+
+/* List markers and table headers keep their weight, only the colour changes. */
+.ai-reply .zyrex-markdown li::marker {
+  color: #ffffff;
+}
+
+.ai-reply .zyrex-markdown a:hover,
+.ai-reply .zyrex-markdown a:focus-visible {
+  color: #ffffff;
+  text-decoration-color: #ffffff;
+}
+
+/* ==========================================================================
    Reduced motion
    ========================================================================== */
 @media (prefers-reduced-motion: reduce) {
