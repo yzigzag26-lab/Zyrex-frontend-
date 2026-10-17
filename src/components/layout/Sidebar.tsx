@@ -1,149 +1,112 @@
-import { navItems, product } from "../../data/appConfig";
 import { useZyrex } from "../../store/ZyrexProvider";
-import { cn } from "../../utils/cn";
-import { ZyrexLogo } from "../brand/ZyrexLogo";
-import { IconButton } from "../ui/Controls";
 import { Icon } from "../ui/Icons";
-import { ChatHistory } from "./ChatHistory";
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
-  const { page, navigate, phase, aiStatus, aiStatusDetail, aiStatusLabel } = useZyrex();
+export function Sidebar() {
+  const {
+    conversations,
+    activeConversationId,
+    selectConversation,
+    deleteConversation,
+    startNewConversation,
+    page,
+    navigate,
+  } = useZyrex();
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-surface">
-      <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3">
+    <aside className="w-[260px] h-full bg-[#171717] flex flex-col p-3 border-r border-[#2f2f2f] shrink-0 hidden md:flex text-white select-none">
+      {/* Top Header / New Chat */}
+      <div className="flex items-center justify-between mb-3 px-1">
         <button
           type="button"
-          onClick={() => navigate("dashboard")}
-          className="flex min-w-0 items-center gap-2.5 rounded-xl text-left"
-          aria-label="ZYREX AI home"
+          onClick={startNewConversation}
+          className="flex-1 flex items-center justify-between gap-2 px-3 py-2 text-sm font-medium rounded-xl bg-[#212121] hover:bg-[#2f2f2f] border border-[#2f2f2f] text-white transition-colors"
         >
-          <ZyrexLogo size={34} state={phase === "idle" ? "idle" : "thinking"} />
-          <span className="min-w-0">
-            <span className="block text-[14px] leading-none font-semibold tracking-[0.16em] text-ink">
-              ZYREX <span className="text-accent">AI</span>
-            </span>
-            <span className="mt-1.5 block text-[9.5px] leading-none font-medium tracking-[0.16em] text-muted uppercase">
-              {product.tagline}
-            </span>
+          <span className="flex items-center gap-2">
+            <Icon name="spark" size={16} className="text-white" />
+            <span>New chat</span>
           </span>
+          <Icon name="plus" size={14} className="text-white" />
         </button>
-        {onNavigate && (
-          <IconButton name="close" label="Close navigation" onClick={onNavigate} className="lg:hidden" />
+      </div>
+
+      {/* Nav Section: Recent AI History */}
+      <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-[#b4b4b4]">
+        Recent
+      </div>
+
+      {/* Conversations / Recent tabs list */}
+      <div className="flex-1 overflow-y-auto space-y-1 pr-1">
+        {conversations.length === 0 ? (
+          <div className="px-3 py-6 text-center text-xs text-[#8e8e8e]">
+            No recent AI chats yet
+          </div>
+        ) : (
+          conversations.map((conv) => {
+            const isActive = conv.id === activeConversationId;
+            return (
+              <div
+                key={conv.id}
+                className={`group relative flex items-center justify-between rounded-xl px-3 py-2 text-sm cursor-pointer transition-colors ${
+                  isActive
+                    ? "bg-[#2f2f2f] text-white font-medium"
+                    : "text-white hover:bg-[#212121]"
+                }`}
+                onClick={() => selectConversation(conv.id)}
+              >
+                <div className="flex items-center gap-2.5 truncate mr-2">
+                  <Icon name="spark" size={14} className="shrink-0 text-white" />
+                  <span className="truncate text-white text-xs">{conv.title}</span>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Delete conversation"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteConversation(conv.id);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 hover:text-red-400 p-1 text-[#8e8e8e] transition-opacity"
+                >
+                  <Icon name="trash" size={12} />
+                </button>
+              </div>
+            );
+          })
         )}
       </div>
 
-
-
-      <nav aria-label="Primary" className="px-2.5">
-        <p className="z-eyebrow px-2 pb-1.5">Workspace</p>
-        <ul className="space-y-0.5">
-          {navItems.map((item) => {
-            const isActive = page === item.id;
-            return (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigate(item.id);
-                    onNavigate?.();
-                  }}
-                  aria-current={isActive ? "page" : undefined}
-                  className={cn(
-                    "group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-all duration-200",
-                    isActive
-                      ? "bg-surface2 text-ink ring-1 ring-line"
-                      : "text-ink2 hover:bg-surface2/70 hover:text-ink",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "absolute top-1/2 left-0 h-5 w-[2px] -translate-y-1/2 rounded-full transition-all duration-300",
-                      isActive ? "bg-gradient-to-b from-orange-400 to-amber-500" : "bg-transparent",
-                    )}
-                  />
-                  <Icon
-                    name={item.icon}
-                    size={16}
-                    className={cn(
-                      "transition-colors",
-                      isActive ? "text-ink" : "text-muted group-hover:text-ink2",
-                    )}
-                  />
-                  <span className="text-[0.8125rem] font-medium">{item.label}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-
-      {/* Past sessions — selectable and deletable. */}
-      <ChatHistory />
-
-      <div className="border-t border-line px-4 py-3">
-        <p className="flex items-start gap-1.5 text-[10px] leading-relaxed text-muted">
-          <Icon
-            name={aiStatus === "connected" ? "check" : aiStatus === "error" ? "alert" : "info"}
-            size={11}
-            className={cn(
-              "mt-px shrink-0",
-              aiStatus === "connected" ? "text-pos" : aiStatus === "error" ? "text-neg" : "text-muted",
-            )}
-          />
-          <span>
-            <span className="font-semibold text-ink2">{aiStatusLabel}.</span>{" "}
-            {aiStatus === "connected"
-              ? "ZYREX AI backend is linked. No exchange or trade data source is connected yet."
-              : aiStatusDetail}
-          </span>
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/** Desktop sidebar / mobile slide-out drawer. */
-export function Sidebar() {
-  const { sidebarOpen, setSidebarOpen, isMobile } = useZyrex();
-
-  return (
-    <>
-      {/* Desktop */}
-      <aside className="hidden h-full w-[264px] shrink-0 overflow-hidden border-r border-line lg:block">
-        <SidebarContent />
-      </aside>
-
-      {/* Mobile drawer */}
-      {isMobile && (
-        <div
-          className={cn(
-            "fixed inset-0 z-50 lg:hidden",
-            sidebarOpen ? "pointer-events-auto" : "pointer-events-none",
-          )}
-          aria-hidden={!sidebarOpen}
-          inert={!sidebarOpen}
+      {/* Bottom Workspace Navigation */}
+      <div className="pt-2 border-t border-[#2f2f2f] space-y-1">
+        <button
+          type="button"
+          onClick={() => navigate("ai")}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-xs rounded-lg transition-colors ${
+            page === "ai" ? "bg-[#2f2f2f] text-white" : "text-white hover:bg-[#212121]"
+          }`}
         >
-          <div
-            role="presentation"
-            onClick={() => setSidebarOpen(false)}
-            className={cn(
-              "absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300",
-              sidebarOpen ? "opacity-100" : "opacity-0",
-            )}
-          />
-          <div
-            role="dialog"
-            aria-label="Navigation"
-            className={cn(
-              "absolute inset-y-0 left-0 w-[min(19rem,84vw)] border-r border-line shadow-2xl transition-transform duration-300 ease-out",
-              sidebarOpen ? "translate-x-0" : "-translate-x-full",
-            )}
-          >
-            <SidebarContent onNavigate={() => setSidebarOpen(false)} />
-          </div>
-        </div>
-      )}
-    </>
+          <Icon name="spark" size={14} className="text-white" />
+          <span>ZYREX AI</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate("dashboard")}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-xs rounded-lg transition-colors ${
+            page === "dashboard" ? "bg-[#2f2f2f] text-white" : "text-white hover:bg-[#212121]"
+          }`}
+        >
+          <Icon name="grid" size={14} className="text-white" />
+          <span>Dashboard</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate("settings")}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-xs rounded-lg transition-colors ${
+            page === "settings" ? "bg-[#2f2f2f] text-white" : "text-white hover:bg-[#212121]"
+          }`}
+        >
+          <Icon name="settings" size={14} className="text-white" />
+          <span>Settings</span>
+        </button>
+      </div>
+    </aside>
   );
 }

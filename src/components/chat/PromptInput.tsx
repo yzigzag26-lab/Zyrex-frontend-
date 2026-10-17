@@ -155,7 +155,7 @@ export function PromptInput({ autoFocus = false }: { autoFocus?: boolean }) {
                 className={cn(
                   "ml-0.5 grid size-10 place-items-center rounded-2xl transition-all duration-300 active:scale-95",
                   hasText && !busy
-                    ? "bg-gradient-to-br from-orange-400 via-orange-500 to-amber-600 text-white shadow-[0_6px_20px_-6px_rgba(234,88,12,0.9)]"
+                    ? "bg-white text-black shadow-sm hover:bg-neutral-200"
                     : "cursor-not-allowed bg-surface3 text-muted",
                 )}
               >

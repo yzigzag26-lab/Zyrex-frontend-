@@ -69,8 +69,9 @@ interface ZyrexContextValue {
   clearActiveConversation: () => void;
   deleteConversation: (id: string) => void;
 
-  /* chat */
+  /* chat & streaming state */
   phase: ChatPhase;
+  isStreaming: boolean;
   sendMessage: (text: string) => void;
   regenerate: () => void;
   clearPromptNotice: () => void;
@@ -96,13 +97,14 @@ function blankConversation(mode: AiModeId): Conversation {
 
 export function ZyrexProvider({ children }: { children: ReactNode }) {
   const isMobile = useMediaQuery("(max-width: 1023px)");
-  const [page, setPage] = useState<PageId>(defaultSettings.interface.defaultLanding);
+  const [page, setPage] = useState<PageId>("ai");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [aiPopupOpen, setAiPopupOpen] = useState(false);
   const [modeId, setModeId] = useState<AiModeId>(defaultSettings.aiPreferences.defaultMode);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [phase, setPhase] = useState<ChatPhase>("idle");
+  const [isStreaming, setIsStreaming] = useState(false);
   const [promptNotice, setPromptNotice] = useState<string | null>(null);
 
   /* live AI backend connection ------------------------------------------ */
@@ -118,13 +120,11 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.remove("dark");
-    root.style.colorScheme = "light";
+    root.classList.add("dark");
+    root.style.colorScheme = "dark";
   }, []);
 
-  const toggleTheme = useCallback(() => {
-    // No-op - light mode only
-  }, []);
+  const toggleTheme = useCallback(() => {}, []);
 
   const toggleAIPopup = useCallback(() => {
     setAiPopupOpen((prev) => !prev);
@@ -190,10 +190,6 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
   const clearPromptNotice = useCallback(() => setPromptNotice(null), []);
 
   /* ---------------------------------------------------- backend connection */
-  /**
-   * Probes the real backend endpoint. Every "connected / offline" surface
-   * reads this result, so it only reports success when the backend answered.
-   */
   const recheckAiConnection = useCallback(() => {
     setAiStatus("connecting");
     setAiStatusDetail(`Probing ${aiBackend.baseUrl}${aiBackend.healthEndpoint}…`);
@@ -208,15 +204,13 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
   }, [recheckAiConnection]);
 
   /* chat ---------------------------------------------------------------- */
-  /**
-   * Submit engine: open the Render WebSocket on send, transmit prompt/mode/history,
-   * and append each token onto the last assistant message until `[DONE]`.
-   * Layout, input chrome, and response-block rendering stay untouched.
-   */
   const sendMessage = useCallback(
     (rawText: string) => {
       const text = rawText.trim();
-      if (!text || phase === "connecting" || phase === "thinking") return;
+      if (!text || isStreaming) return;
+
+      // Exact millisecond user submits
+      setIsStreaming(true);
 
       const userMessage: ChatMessage = {
         id: createId("msg"),
@@ -240,7 +234,6 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
         message.role === "user"
           ? { role: "user" as const, text: message.text ?? "" }
           : {
-              // The backend expects "assistant"; "zyrex" is UI-only.
               role: "assistant" as const,
               text: responseToText(message.title ?? "ZYREX Analysis", message.blocks ?? []),
             },
@@ -301,6 +294,9 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
               blocks: [{ type: "summary", text: accumulated }],
             }));
           },
+          onDone: () => {
+            setIsStreaming(false);
+          },
         },
       )
         .then((result) => {
@@ -340,10 +336,11 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
           }));
         })
         .finally(() => {
+          setIsStreaming(false);
           setPhase("idle");
         });
     },
-    [activeId, activeConversation, modeId, patchConversation, phase],
+    [activeId, activeConversation, modeId, patchConversation, isStreaming],
   );
 
   const regenerate = useCallback(() => {
@@ -396,6 +393,7 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
     clearActiveConversation,
     deleteConversation,
     phase,
+    isStreaming,
     sendMessage,
     regenerate,
     promptNotice,
