@@ -71,13 +71,6 @@ const TEXT_KEYS = [
   "body",
 ];
 
-/**
- * Flatten a `blocks` array into readable markdown.
- *
- * The backend's documented contract returns the answer in `blocks`, which may
- * hold plain strings, `{ title, text }` chunks, `{ items: [...] }` lists, or
- * fully structured `ResponseBlock`s.
- */
 function stringifyBlocks(blocks: unknown[]): string {
   const parts: string[] = [];
 
@@ -109,33 +102,22 @@ function stringifyBlocks(blocks: unknown[]): string {
         }
       }
     }
-    // Keep list items adjacent so markdown renders one tight list.
     if (listLines.length > 0) chunk.push(listLines.join("\n"));
-
-    // Separate the parts of one chunk with blank lines.
     if (chunk.length > 0) parts.push(chunk.join("\n\n"));
   }
 
   return parts.join("\n\n").trim();
 }
 
-/**
- * Pull the answer text out of whatever shape the backend returns.
- * Covers the documented `blocks` payload, flat fields, nested `data`,
- * OpenAI-style `choices[]` and plain-text bodies.
- * Returns an empty string when nothing readable is present.
- */
 export function extractAnswerText(payload: unknown, raw: string): string {
   if (typeof payload === "string") return cleanText(payload);
 
   if (isRecord(payload)) {
-    // Documented contract: the answer lives in `blocks`.
     if (Array.isArray(payload.blocks)) {
       const fromBlocks = stringifyBlocks(payload.blocks);
       if (fromBlocks) return cleanText(fromBlocks);
     }
 
-    // Explicit structured block payload is handled by the caller.
     for (const key of TEXT_KEYS) {
       const value = payload[key];
       if (typeof value === "string" && value.trim()) return cleanText(value);
@@ -177,7 +159,6 @@ export function extractAnswerText(payload: unknown, raw: string): string {
     }
   }
 
-  // Non-JSON body (plain text response).
   const trimmed = raw.trim();
   if (trimmed && !/^[{[]/.test(trimmed)) return cleanText(trimmed);
   return "";
@@ -206,12 +187,6 @@ function truncate(value: string, max: number): string {
   return oneLine.length > max ? `${oneLine.slice(0, max - 1).trimEnd()}…` : oneLine;
 }
 
-/**
- * Turn a plain-text AI answer into the `ResponseBlock[]` the chat surface
- * already renders. Markdown headings become titled sections, bullet/numbered
- * lists under an action-style heading become an ordered action list, and
- * everything else becomes readable markdown paragraphs.
- */
 export function answerToBlocks(answer: string): { title: string; blocks: ResponseBlock[] } {
   const text = cleanText(answer);
   if (!text) return { title: "ZYREX Analysis", blocks: [] };
@@ -258,8 +233,6 @@ export function answerToBlocks(answer: string): { title: string; blocks: Respons
     const paragraph = section.lines.join("\n").trim();
     const items = [...new Set(section.items.map((item) => item.trim()).filter(Boolean))];
 
-    // A section that is only a list reads best as a numbered action list.
-    // A list under an action-style heading does too, alongside its text.
     const asActions = items.length > 0 && (paragraph.length === 0 || ACTION_TITLE.test(section.title));
 
     if (asActions) {
@@ -272,7 +245,6 @@ export function answerToBlocks(answer: string): { title: string; blocks: Respons
     if (body) blocks.push({ type: "observation", title: section.title, text: body });
   }
 
-  // No headings anywhere — keep the whole answer as one readable block.
   if (blocks.length === 0) blocks.push({ type: "summary", text });
 
   const headingTitle = sections.find((section) => section.title)?.title;
@@ -288,16 +260,12 @@ export function answerToBlocks(answer: string): { title: string; blocks: Respons
 
 export const STREAM_DONE = "[DONE]";
 
-/** Live token callbacks for the last-assistant-message bucket in React state. */
 export interface AnalysisStreamHandlers {
   onOpen?: () => void;
   onToken?: (accumulated: string, chunk: string) => void;
+  onDone?: () => void;
 }
 
-/**
- * Open `wss://zyrex-mpya.onrender.com` on submit, send `{ prompt, mode, history }`,
- * and emit each stream piece until the payload matches `[DONE]`.
- */
 export async function requestAnalysis(
   request: AnalysisRequest,
   handlers: AnalysisStreamHandlers = {},
@@ -353,6 +321,7 @@ export async function requestAnalysis(
         const payload = parseJson(raw);
         // Accept both raw text and a JSON-encoded string sentinel.
         if (isDoneSentinel(raw, payload)) {
+          handlers.onDone?.();
           finish(answer.trim()
             ? { status: "ready", ...answerToBlocks(answer) }
             : { status: "offline", reason: "ZYREX finished without returning readable content." });
@@ -362,7 +331,6 @@ export async function requestAnalysis(
           finish({ status: "offline", reason: pickString(payload, ["reason", "error", "message", "detail"]) ?? "ZYREX could not answer." });
           return;
         }
-        // Preserve whitespace in token chunks (extractAnswerText trims text).
         const chunk = typeof payload === "string" ? payload
           : isRecord(payload) ? [payload.chunk, payload.token, payload.text, payload.content]
               .find((value): value is string => typeof value === "string")
@@ -390,7 +358,6 @@ export interface BackendHealth {
   status: number | null;
 }
 
-/** Check the actual WebSocket handshake, not an obsolete HTTP health route. */
 export async function checkAiBackendHealth(): Promise<BackendHealth> {
   const startedAt = Date.now();
   return new Promise((resolve) => {
@@ -425,7 +392,6 @@ export async function checkAiBackendHealth(): Promise<BackendHealth> {
   });
 }
 
-/** Convenience for the mode chip in the chat header. */
 export function healthLabel(state: ConnectionState): string {
   switch (state) {
     case "connected":
