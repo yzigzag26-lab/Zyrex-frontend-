@@ -116,7 +116,7 @@ export const notifications: {
 /**
  * The single integration point for the ZYREX AI backend.
  *
- * Implemented in `src/lib/zyrexApi.ts` — it POSTs the prompt to the backend,
+ * Implemented in `src/lib/zyrexApi.ts` — it streams the prompt response over WebSocket,
  * normalizes the answer into `ResponseBlock[]`, and reports `offline` with the
  * real reason when the backend cannot be reached. No answer is ever invented.
  */
