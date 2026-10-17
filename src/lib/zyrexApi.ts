@@ -1,6 +1,7 @@
 /**
- * ZYREX Python backend transport. Stream chunks stay outside React state until
- * [DONE], then pass through the existing response-block renderer unchanged.
+ * ZYREX Python backend transport. Submit opens a WebSocket to the Render
+ * stream, forwards every token so the chat can append to the last assistant
+ * message, and stops when the payload matches "[DONE]".
  */
 import type {
   AnalysisRequest,
@@ -285,8 +286,22 @@ export function answerToBlocks(answer: string): { title: string; blocks: Respons
 
 /* ------------------------------------------------------------- AI request */
 
-/** Collect a stream without triggering a React render for every token. */
-export async function requestAnalysis(request: AnalysisRequest): Promise<AnalysisResult> {
+export const STREAM_DONE = "[DONE]";
+
+/** Live token callbacks for the last-assistant-message bucket in React state. */
+export interface AnalysisStreamHandlers {
+  onOpen?: () => void;
+  onToken?: (accumulated: string, chunk: string) => void;
+}
+
+/**
+ * Open `wss://zyrex-mpya.onrender.com` on submit, send `{ prompt, mode, history }`,
+ * and emit each stream piece until the payload matches `[DONE]`.
+ */
+export async function requestAnalysis(
+  request: AnalysisRequest,
+  handlers: AnalysisStreamHandlers = {},
+): Promise<AnalysisResult> {
   const prompt = request.prompt.trim();
   if (!prompt) {
     return { status: "offline", reason: "Enter a message before sending." };
@@ -311,13 +326,18 @@ export async function requestAnalysis(request: AnalysisRequest): Promise<Analysi
       resolve(result);
     }
 
+    function isDoneSentinel(raw: string, payload: unknown): boolean {
+      return raw.trim() === STREAM_DONE || payload === STREAM_DONE;
+    }
+
     try {
       socket = new WebSocket(aiAnswerUrl);
       socket.onopen = () => {
         try {
+          handlers.onOpen?.();
           socket!.send(JSON.stringify({
             prompt,
-            mode: "analyst",
+            mode: request.mode,
             history: (request.history ?? []).slice(-8).map((turn) => ({
               role: turn.role === "user" ? "user" : "assistant",
               text: turn.text ?? "",
@@ -332,7 +352,7 @@ export async function requestAnalysis(request: AnalysisRequest): Promise<Analysi
         const raw = event.data;
         const payload = parseJson(raw);
         // Accept both raw text and a JSON-encoded string sentinel.
-        if (raw.trim() === "[DONE]" || payload === "[DONE]") {
+        if (isDoneSentinel(raw, payload)) {
           finish(answer.trim()
             ? { status: "ready", ...answerToBlocks(answer) }
             : { status: "offline", reason: "ZYREX finished without returning readable content." });
@@ -348,7 +368,9 @@ export async function requestAnalysis(request: AnalysisRequest): Promise<Analysi
               .find((value): value is string => typeof value === "string")
               ?? extractAnswerText(payload, "")
           : raw;
+        if (chunk.length === 0) return;
         answer += chunk;
+        handlers.onToken?.(answer, chunk);
       };
       socket.onerror = () => finish({ status: "offline", reason: `Couldn't connect to ${aiAnswerUrl}. Check backend availability and allowed WebSocket origins.` });
       socket.onclose = () => finish({ status: "offline", reason: "ZYREX disconnected before completing the response ([DONE]). Please try again." });

@@ -209,9 +209,9 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
 
   /* chat ---------------------------------------------------------------- */
   /**
-   * Sends a prompt to the ZYREX AI backend through `requestAnalysis`.
-   * While the backend is not connected the resolver returns `offline` and the
-   * chat surface renders the connection notice. No response is ever fabricated.
+   * Submit engine: open the Render WebSocket on send, transmit prompt/mode/history,
+   * and append each token onto the last assistant message until `[DONE]`.
+   * Layout, input chrome, and response-block rendering stay untouched.
    */
   const sendMessage = useCallback(
     (rawText: string) => {
@@ -225,12 +225,33 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
         text,
       };
 
+      const assistantMessage: ChatMessage = {
+        id: createId("msg"),
+        role: "zyrex",
+        createdAt: new Date().toISOString(),
+        mode: modeId,
+        kind: "analysis",
+        title: "ZYREX Analysis",
+        text: "",
+        blocks: [],
+      };
+
+      const history = (activeConversation?.messages.slice(-8) ?? []).map((message) =>
+        message.role === "user"
+          ? { role: "user" as const, text: message.text ?? "" }
+          : {
+              // The backend expects "assistant"; "zyrex" is UI-only.
+              role: "assistant" as const,
+              text: responseToText(message.title ?? "ZYREX Analysis", message.blocks ?? []),
+            },
+      );
+
       let conversationId = activeId;
       if (!conversationId) {
         const conversation: Conversation = {
           ...blankConversation(modeId),
           title: text.length > 34 ? `${text.slice(0, 34)}…` : text,
-          messages: [userMessage],
+          messages: [userMessage, assistantMessage],
         };
         setConversations((prev) => [conversation, ...prev]);
         setActiveId(conversation.id);
@@ -241,90 +262,86 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
           title:
             c.messages.length === 0 ? (text.length > 34 ? `${text.slice(0, 34)}…` : text) : c.title,
           updatedAt: "Just now",
-          messages: [...c.messages, userMessage],
+          messages: [...c.messages, userMessage, assistantMessage],
         }));
       }
 
       setPage("ai");
       setPhase("connecting");
 
-      const history = activeConversation?.messages.slice(-8) ?? [];
+      const targetId = conversationId;
+      const assistantId = assistantMessage.id;
 
-      window.setTimeout(() => {
-        setPhase("thinking");
-        void requestAnalysis({
+      const updateLastAssistant = (patch: (message: ChatMessage) => ChatMessage) => {
+        patchConversation(targetId, (c) => {
+          const messages = [...c.messages];
+          for (let index = messages.length - 1; index >= 0; index -= 1) {
+            if (messages[index].id === assistantId || messages[index].role === "zyrex") {
+              messages[index] = patch(messages[index]);
+              break;
+            }
+          }
+          return { ...c, updatedAt: "Just now", messages };
+        });
+      };
+
+      void requestAnalysis(
+        {
           prompt: text,
           mode: modeId,
-          history: history.map((message) =>
-            message.role === "user"
-              ? { role: "user" as const, text: message.text ?? "" }
-              : {
-                  // The backend expects "assistant"; "zyrex" is UI-only.
-                  role: "assistant" as const,
-                  text: responseToText(message.title ?? "ZYREX Analysis", message.blocks ?? []),
-                },
-          ),
+          history,
+        },
+        {
+          onOpen: () => setPhase("thinking"),
+          onToken: (accumulated) => {
+            updateLastAssistant((message) => ({
+              ...message,
+              kind: "analysis",
+              text: accumulated,
+              blocks: [{ type: "summary", text: accumulated }],
+            }));
+          },
+        },
+      )
+        .then((result) => {
+          if (result.status === "ready") {
+            setAiStatus("connected");
+            setAiStatusDetail("Backend answered the last analysis request.");
+            updateLastAssistant((message) => ({
+              ...message,
+              kind: "analysis",
+              title: result.title,
+              blocks: result.blocks,
+            }));
+            return;
+          }
+
+          setAiStatus("error");
+          setAiStatusDetail(result.reason);
+          updateLastAssistant((message) => ({
+            ...message,
+            kind: "offline",
+            title: result.reason,
+            text: "",
+            blocks: [],
+          }));
         })
-          .then((result) => {
-            if (result.status === "ready") {
-              setAiStatus("connected");
-              setAiStatusDetail("Backend answered the last analysis request.");
-            } else {
-              setAiStatus("error");
-              setAiStatusDetail(result.reason);
-            }
-
-            const message: ChatMessage =
-              result.status === "ready"
-                ? {
-                    id: createId("msg"),
-                    role: "zyrex",
-                    createdAt: new Date().toISOString(),
-                    mode: modeId,
-                    kind: "analysis",
-                    title: result.title,
-                    blocks: result.blocks,
-                  }
-                : {
-                    id: createId("msg"),
-                    role: "zyrex",
-                    createdAt: new Date().toISOString(),
-                    mode: modeId,
-                    kind: "offline",
-                    title: result.reason,
-                  };
-
-            patchConversation(conversationId as string, (c) => ({
-              ...c,
-              updatedAt: "Just now",
-              messages: [...c.messages, message],
-            }));
-          })
-          .catch(() => {
-            setAiStatus("disconnected");
-            setAiStatusDetail(
-              `Couldn't reach ${aiBackend.baseUrl}. It may be offline or blocking cross-origin requests.`,
-            );
-            patchConversation(conversationId as string, (c) => ({
-              ...c,
-              updatedAt: "Just now",
-              messages: [
-                ...c.messages,
-                {
-                  id: createId("msg"),
-                  role: "zyrex",
-                  createdAt: new Date().toISOString(),
-                  mode: modeId,
-                  kind: "offline",
-                  title: "I couldn't connect to ZYREX right now. Please try again.",
-                },
-              ],
-            }));
-          })
-          .finally(() => {
-            setPhase("idle");
-          });
-      }, 650);
+        .catch(() => {
+          setAiStatus("disconnected");
+          setAiStatusDetail(
+            `Couldn't reach ${aiBackend.baseUrl}. It may be offline or blocking cross-origin requests.`,
+          );
+          updateLastAssistant((message) => ({
+            ...message,
+            kind: "offline",
+            title: "I couldn't connect to ZYREX right now. Please try again.",
+            text: "",
+            blocks: [],
+          }));
+        })
+        .finally(() => {
+          setPhase("idle");
+        });
     },
     [activeId, activeConversation, modeId, patchConversation, phase],
   );
