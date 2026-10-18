@@ -1,26 +1,24 @@
 import { useState } from "react";
 import { useZyrex } from "../../store/ZyrexProvider";
-import { cn } from "../../utils/cn";
 import { Icon } from "../ui/Icons";
 
 interface ResponseActionsProps {
   text: string;
 }
 
-/** Copy / regenerate controls attached to every ZYREX response. */
 export function ResponseActions({ text }: ResponseActionsProps) {
   const { regenerate, phase } = useZyrex();
   const [copied, setCopied] = useState(false);
-  const busy = phase === "thinking";
+  const busy = phase === "thinking" || phase === "connecting";
 
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
     } catch {
-      /* clipboard unavailable — fall through to the confirmation state */
+      setCopied(false);
     }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
   };
 
   return (
@@ -42,13 +40,6 @@ export function ResponseActions({ text }: ResponseActionsProps) {
         <Icon name="refresh" size={13} />
         Regenerate
       </button>
-      <span
-        className={cn(
-          "ml-1 hidden items-center gap-1.5 rounded-md border border-line px-1.5 py-0.5 text-[9.5px] font-semibold tracking-wider text-muted uppercase sm:inline-flex",
-        )}
-      >
-        Mock
-      </span>
     </div>
   );
 }

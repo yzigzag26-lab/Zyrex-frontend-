@@ -43,7 +43,19 @@ export type IconName =
   | "download"
   | "external"
   | "more"
-  | "panelLeft";
+  | "moreH"
+  | "panelLeft"
+  | "pin"
+  | "share"
+  | "image"
+  | "file"
+  | "stop"
+  | "eye"
+  | "eyeOff"
+  | "lock"
+  | "logout"
+  | "upload"
+  | "camera";
 
 const paths: Record<IconName, ReactElement> = {
   grid: (
@@ -280,6 +292,81 @@ const paths: Record<IconName, ReactElement> = {
     <>
       <rect x="3.5" y="4" width="17" height="16" rx="2.5" />
       <path d="M9.5 4v16" />
+    </>
+  ),
+  moreH: (
+    <>
+      <circle cx="5.5" cy="12" r="1.4" />
+      <circle cx="12" cy="12" r="1.4" />
+      <circle cx="18.5" cy="12" r="1.4" />
+    </>
+  ),
+  pin: (
+    <>
+      <path d="M9 4.5h6l-.8 5.2 2.3 2.3V14H7.5v-2l2.3-2.3z" />
+      <path d="M12 14v6" />
+    </>
+  ),
+  share: (
+    <>
+      <circle cx="18" cy="5.5" r="2.2" />
+      <circle cx="18" cy="18.5" r="2.2" />
+      <circle cx="6" cy="12" r="2.2" />
+      <path d="M8 11.2l8-4.4M8 12.8l8 4.4" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3.5" y="5" width="17" height="14" rx="2.2" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="M3.8 16.5l5.2-4.4 3.4 2.8 2.6-2.2 5.2 3.8" />
+    </>
+  ),
+  file: (
+    <>
+      <path d="M7 3.5h7l5.5 5.5V20a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 20V5A1.5 1.5 0 0 1 7 3.5z" />
+      <path d="M14 3.5V9h5.5" />
+    </>
+  ),
+  stop: <rect x="7" y="7" width="10" height="10" rx="1.6" fill="currentColor" stroke="none" />,
+  eye: (
+    <>
+      <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+      <circle cx="12" cy="12" r="2.6" />
+    </>
+  ),
+  eyeOff: (
+    <>
+      <path d="M3 3l18 18" />
+      <path d="M9.9 9.9A2.6 2.6 0 0 0 12 14.6" />
+      <path d="M6.1 6.4C3.9 8 2.5 12 2.5 12s3.5 6.5 9.5 6.5c1.7 0 3.2-.4 4.5-1.1" />
+      <path d="M12.7 5.6A10.4 10.4 0 0 1 21.5 12s-.6 1.1-1.7 2.4" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="5.5" y="11" width="13" height="9.5" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  logout: (
+    <>
+      <path d="M10 4.5H6.5A2 2 0 0 0 4.5 6.5v11A2 2 0 0 0 6.5 19.5H10" />
+      <path d="M10 12h9.5" />
+      <path d="M16.5 8.5L20 12l-3.5 3.5" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M12 16V5" />
+      <path d="M7.5 9.5L12 5l4.5 4.5" />
+      <path d="M4.5 20h15" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M8 7l1.4-2h5.2L16 7h3.5A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-9A1.5 1.5 0 0 1 4.5 7z" />
+      <circle cx="12" cy="13" r="3.2" />
     </>
   ),
 };

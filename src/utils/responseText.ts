@@ -7,7 +7,7 @@ import type { ResponseBlock } from "../types";
  * Used for the copy action and to give the backend real conversation context.
  */
 export function responseToText(title: string, blocks: ResponseBlock[]): string {
-  const lines: string[] = [`ZYREX ANALYSIS — ${title.toUpperCase()}`, ""];
+  const lines: string[] = [`HERMES ANALYSIS — ${title.toUpperCase()}`, ""];
   for (const block of blocks) {
     switch (block.type) {
       case "summary":

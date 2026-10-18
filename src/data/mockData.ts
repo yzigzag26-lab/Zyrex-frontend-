@@ -1721,6 +1721,7 @@ export const defaultSettings: AppSettings = {
   aiPreferences: {
     defaultMode: "analyst",
     responseDetail: "balanced",
+    analysisDetail: "standard",
     showConfidence: true,
     autoAnalyzeAfterTrade: false,
   },
@@ -1729,6 +1730,11 @@ export const defaultSettings: AppSettings = {
     riskUnit: "R",
     defaultSession: "All",
     includeFeesInPnl: true,
+  },
+  marketPreferences: {
+    preferredInstruments: "",
+    defaultMarket: "Not set",
+    timezone: "UTC",
   },
   notifications: {
     weeklyReview: true,
@@ -1741,6 +1747,13 @@ export const defaultSettings: AppSettings = {
     timezone: "UTC",
     dateFormat: "YYYY-MM-DD",
     hideSmallPnl: false,
+  },
+  privacy: {
+    allowSharing: false,
+  },
+  tradingSafety: {
+    tradingMode: "not_configured",
+    confirmLiveOrders: true,
   },
 };
 

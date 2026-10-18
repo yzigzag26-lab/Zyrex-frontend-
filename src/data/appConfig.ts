@@ -2,6 +2,7 @@ import type {
   AiMode,
   AppSettings,
   Capability,
+  Connector,
   IntegrationPoint,
   JournalSchemaGroup,
   NavItem,
@@ -9,66 +10,54 @@ import type {
   StarterCard,
 } from "../types";
 
-/**
- * Static UI configuration for ZYREX AI.
- *
- * This module contains **no trading data, no analytics and no AI responses** —
- * only product chrome: branding, navigation, mode definitions, the locked
- * journal schema, capability declarations and onboarding copy.
- *
- * Anything that represents real trading intelligence lives in `dataset.ts`.
- */
-
-/**
- * A backend endpoint is configured in code. Whether it is actually reachable
- * is measured at runtime by `src/lib/zyrexApi.ts` and exposed as
- * `useZyrex().aiStatus` — this static entry must never claim a live
- * connection on its own.
- */
 const hasAiBackend = true;
 
 export const product = {
-  name: "ZYREX AI",
-  tagline: "Trading Intelligence",
-  version: "v0.9.4 · Groq-ready",
-  offlineTitle: "ZYREX AI is ready",
-  offlineDetail: "Ask about trading concepts, setups, risk, and market behavior.",
+  name: "HERMES AI",
+  shortName: "HERMES",
+  tagline: "Private AI Trading",
+  version: "v1.0.0",
+  offlineTitle: "HERMES AI is ready",
+  offlineDetail: "Ask about markets, risk, setups, and trading discipline.",
   disclaimer:
-    "ZYREX AI provides analysis based on available trading data. Always verify important decisions against your trading plan and risk rules.",
+    "HERMES AI provides analysis based on available information. Always verify important decisions against your trading plan and risk rules.",
+  privateLabel: "Private access",
 };
 
-/* ------------------------------------------------------- integration status */
-
-/**
- * Every integration the product waits on. These are the single source of truth
- * for all "not connected" surfaces — nothing is simulated.
- */
 export const integrations: Record<IntegrationPoint["id"], IntegrationPoint> = {
   ai: {
     id: "ai",
-    label: "ZYREX AI Backend",
+    label: "AI service",
     state: hasAiBackend ? "connecting" : "disconnected",
     statusLabel: hasAiBackend ? "Checking" : "Offline",
     detail: hasAiBackend
-      ? "Endpoint configured. Live status is probed on load — see the chat header and Settings."
+      ? "WebSocket endpoint configured. Live status is probed on load."
       : "No analysis endpoint configured.",
-    requiredFor: "Trade analysis, psychology analysis, pattern detection and research answers.",
+    requiredFor: "Conversation, analysis, and streaming replies.",
   },
   tradeData: {
     id: "tradeData",
-    label: "Trade Data Source",
+    label: "Trade data",
     state: "disconnected",
     statusLabel: "No data",
     detail: "No trades have been imported or journalled.",
-    requiredFor: "Metrics, equity curve, distributions and journal history.",
+    requiredFor: "Balances, positions, and performance figures.",
   },
   account: {
     id: "account",
-    label: "Exchange Accounts",
+    label: "Connected broker",
     state: "disconnected",
-    statusLabel: "Not linked",
+    statusLabel: "Not connected",
     detail: "No exchange or broker account is linked.",
-    requiredFor: "Automatic trade import and position sync.",
+    requiredFor: "Account balances, positions, and order sync.",
+  },
+  marketData: {
+    id: "marketData",
+    label: "Market-data service",
+    state: "not_configured",
+    statusLabel: "Not configured",
+    detail: "No market-data provider has been selected.",
+    requiredFor: "Live prices and instrument overview.",
   },
   notifications: {
     id: "notifications",
@@ -76,22 +65,21 @@ export const integrations: Record<IntegrationPoint["id"], IntegrationPoint> = {
     state: "disconnected",
     statusLabel: "Disabled",
     detail: "No delivery channel configured.",
-    requiredFor: "Weekly reviews, drawdown alerts and pattern notifications.",
+    requiredFor: "Alerts and weekly reviews.",
   },
 };
 
 export const workspace = {
-  name: "Local Workspace",
-  subtitle: "No account connected",
-  initials: "ZY",
+  name: "Admin",
+  subtitle: "Private workspace",
+  initials: "HA",
 };
-
-/* --------------------------------------------------------------- navigation */
 
 export const navItems: NavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "grid" },
+  { id: "ai", label: "AI", icon: "spark" },
+  { id: "strategies", label: "Strategies", icon: "target" },
   { id: "journal", label: "Journal", icon: "book" },
-  { id: "recent", label: "Recent", icon: "clock" },
   { id: "settings", label: "Settings", icon: "settings" },
 ];
 
@@ -107,12 +95,10 @@ export const aiModes: AiMode[] = [
     id: "research",
     name: "Research",
     tagline: "Market research and investigation",
-    description: "Open-ended research projects, hypotheses and evidence review.",
+    description: "Open-ended research, hypotheses and evidence review.",
     icon: "search",
   },
 ];
-
-/* ------------------------------------------------------------- capabilities */
 
 export const capabilities: Capability[] = [
   {
@@ -159,99 +145,66 @@ export const capabilities: Capability[] = [
   },
 ];
 
-/* --------------------------------------------------------- onboarding steps */
-
 export const onboardingSteps: OnboardingStep[] = [
   {
-    id: "import",
+    id: "connect",
     index: 1,
-    title: "Import trades",
-    detail: "Connect an exchange account or upload your trade history.",
+    title: "Connect a broker",
+    detail: "Link an exchange account through Settings → Connectors.",
     icon: "download",
-    target: "journal",
+    target: "settings",
   },
   {
     id: "journal",
     index: 2,
-    title: "Create your first journal entry",
-    detail: "Log plan, execution, psychology and review for a single trade.",
+    title: "Start a journal",
+    detail: "Save analyses and notes. Nothing is invented in empty states.",
     icon: "book",
     target: "journal",
   },
 ];
 
-/* ------------------------------------------------------------ starter cards */
-
-/** Prompt suggestions only — submitting one still requires a live backend. */
 export const starterCards: StarterCard[] = [
   {
     id: "performance",
     icon: "📊",
-    title: "Analyze My Performance",
+    title: "Analyze performance",
     prompt: "Review my recent trading results.",
-    mode: "analyst",
-    requires: "tradeData",
-  },
-  {
-    id: "psychology",
-    icon: "🧠",
-    title: "Review My Psychology",
-    prompt: "Find emotional patterns in my trading.",
-    mode: "coach",
-    requires: "tradeData",
-  },
-  {
-    id: "mistakes",
-    icon: "⚠️",
-    title: "Find My Biggest Mistakes",
-    prompt: "Identify recurring execution mistakes.",
-    mode: "analyst",
-    requires: "tradeData",
-  },
-  {
-    id: "trades",
-    icon: "📈",
-    title: "Analyze My Recent Trades",
-    prompt: "Review my latest trades.",
-    mode: "analyst",
-    requires: "tradeData",
-  },
-  {
-    id: "setup",
-    icon: "🎯",
-    title: "Find My Best Setup",
-    prompt: "Compare performance by setup.",
     mode: "analyst",
     requires: "tradeData",
   },
   {
     id: "risk",
     icon: "💰",
-    title: "Analyze My Risk",
+    title: "Analyze risk",
     prompt: "Review my risk management.",
     mode: "analyst",
     requires: "tradeData",
   },
+  {
+    id: "setup",
+    icon: "🎯",
+    title: "Best setup",
+    prompt: "Compare performance by setup.",
+    mode: "analyst",
+    requires: "tradeData",
+  },
+  {
+    id: "markets",
+    icon: "🌐",
+    title: "Market structure",
+    prompt: "Explain how you would analyze a market before taking a trade.",
+    mode: "analyst",
+  },
 ];
 
-/* -------------------------------------------------------- locked journ schema */
-
-/** The locked journal schema — presented as a reference, never populated. */
 export const journalSchema: JournalSchemaGroup[] = [
   {
     key: "identity",
     title: "Identity",
     icon: "layers",
     description: "What and where the trade was placed.",
-    fields: [
-      "Trade ID",
-      "Account",
-      "Exchange",
-      "Symbol",
-      "Market",
-      "Direction",
-      "Trade Type",
-    ],
+    fields: ["Trade ID", "Account", "Exchange", "Symbol", "Market", "Direction", "Trade Type"],
   },
   {
     key: "timing",
@@ -281,41 +234,21 @@ export const journalSchema: JournalSchemaGroup[] = [
     title: "Execution",
     icon: "zap",
     description: "What actually happened in the market.",
-    fields: [
-      "Actual Entry",
-      "Actual Exit",
-      "Position Size",
-      "Actual SL",
-      "Actual TP",
-      "Fees",
-      "Slippage",
-    ],
+    fields: ["Actual Entry", "Actual Exit", "Position Size", "Actual SL", "Actual TP", "Fees", "Slippage"],
   },
   {
     key: "result",
     title: "Result",
     icon: "chart",
     description: "Measured outcome of the trade.",
-    fields: [
-      "Gross PnL",
-      "Net PnL",
-      "Risk Amount",
-      "R-Multiple",
-      "Win/Loss",
-    ],
+    fields: ["Gross PnL", "Net PnL", "Risk Amount", "R-Multiple", "Win/Loss"],
   },
   {
     key: "psychology",
     title: "Psychology",
     icon: "brain",
     description: "Emotional state across the trade — scored from real entries.",
-    fields: [
-      "Emotion Before",
-      "Emotion During",
-      "Emotion After",
-      "Confidence",
-      "Discipline",
-    ],
+    fields: ["Emotion Before", "Emotion During", "Emotion After", "Confidence", "Discipline"],
   },
   {
     key: "mistakes",
@@ -329,12 +262,7 @@ export const journalSchema: JournalSchemaGroup[] = [
     title: "Review",
     icon: "book",
     description: "Qualitative reflection and next improvement.",
-    fields: [
-      "What Went Well",
-      "What Went Wrong",
-      "Lesson Learned",
-      "Improvement",
-    ],
+    fields: ["What Went Well", "What Went Wrong", "Lesson Learned", "Improvement"],
   },
   {
     key: "evidence",
@@ -345,24 +273,23 @@ export const journalSchema: JournalSchemaGroup[] = [
   },
 ];
 
-/* ----------------------------------------------------------------- settings */
-
 export const defaultSettings: AppSettings = {
   appearance: {
-    theme: "light",
+    theme: "dark",
     accentGlow: true,
     compactMode: false,
     animations: true,
   },
   interface: {
     showEquityCurve: true,
-    defaultLanding: "dashboard" as const,
+    defaultLanding: "dashboard",
     sidebarPinned: true,
     monospaceNumbers: true,
   },
   aiPreferences: {
     defaultMode: "analyst",
     responseDetail: "balanced",
+    analysisDetail: "standard",
     showConfidence: true,
     autoAnalyzeAfterTrade: false,
   },
@@ -372,9 +299,14 @@ export const defaultSettings: AppSettings = {
     defaultSession: "All",
     includeFeesInPnl: true,
   },
+  marketPreferences: {
+    preferredInstruments: "",
+    defaultMarket: "Not set",
+    timezone: "UTC",
+  },
   notifications: {
-    weeklyReview: true,
-    drawdownAlerts: true,
+    weeklyReview: false,
+    drawdownAlerts: false,
     patternDetected: false,
     researchUpdates: false,
   },
@@ -384,28 +316,49 @@ export const defaultSettings: AppSettings = {
     dateFormat: "YYYY-MM-DD",
     hideSmallPnl: false,
   },
+  privacy: {
+    allowSharing: false,
+  },
+  tradingSafety: {
+    tradingMode: "not_configured",
+    confirmLiveOrders: true,
+  },
 };
 
-/* ------------------------------------------------------------ empty copy */
+export const defaultProfile = {
+  displayName: "Admin",
+  imageDataUrl: null,
+  imageName: null,
+  imageUpdatedAt: null,
+};
 
-/** Central copy for unavailable data — used instead of placeholder numbers. */
+export const connectors: Connector[] = [
+  {
+    id: "binance",
+    name: "Binance",
+    status: "disconnected",
+    description: "Spot and futures. Credentials are never collected in this frontend.",
+    actionLabel: "Connect",
+  },
+];
+
 export const emptyCopy = {
   dashboard: {
-    title: "Welcome to ZYREX",
-    body: "No trading data found.",
+    title: "Account not connected",
+    body: "Balances, positions and allocation charts appear only from a verified data source.",
   },
   metrics: {
     value: "—",
-    title: "No data available",
-    hint: "Import trades to begin analysis",
+    title: "No data yet",
+    hint: "Connect a broker or import trades to populate this panel.",
   },
   chart: {
-    title: "Awaiting trade data",
-    hint: "Charts populate once trades are imported",
+    title: "Nothing to display",
+    hint: "Pie charts render from verified holdings. No values are estimated.",
   },
   journal: {
-    title: "No trades recorded yet",
-    hint: "Import a trade history or create your first journal entry",
+    title: "No journal entries yet",
+    hint: "Save an AI analysis or write a manual note.",
   },
   analytics: {
     title: "Analytics unavailable",
@@ -417,10 +370,22 @@ export const emptyCopy = {
   },
   conversation: {
     title: "No conversations yet",
-    hint: "Sessions you start will appear here",
+    hint: "Sessions you start will appear here.",
+  },
+  strategies: {
+    title: "No strategies yet",
+    hint: "Create a draft to store rules and parameters. Drafts are not executable.",
+  },
+  market: {
+    title: "Market data unavailable",
+    hint: "A market-data API has not been selected. Live prices are not simulated.",
+  },
+  activity: {
+    title: "No recent activity",
+    hint: "Trades, orders, analyses and system events will list here when they exist.",
   },
   notifications: {
     title: "No notifications",
-    hint: "Alerts appear once a data source and delivery channel are connected",
+    hint: "Alerts appear once a delivery channel is connected.",
   },
 };
