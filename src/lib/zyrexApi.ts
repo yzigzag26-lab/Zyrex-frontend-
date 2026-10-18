@@ -8,6 +8,7 @@ import type {
   AnalysisResult,
   ConnectionState,
   ResponseBlock,
+  StructuredOption,
 } from "../types";
 
 // Deliberately independent of legacy HTTP environment variables in deployments.
@@ -189,7 +190,7 @@ function truncate(value: string, max: number): string {
 
 export function answerToBlocks(answer: string): { title: string; blocks: ResponseBlock[] } {
   const text = cleanText(answer);
-  if (!text) return { title: "ZYREX Analysis", blocks: [] };
+  if (!text) return { title: "HERMES Analysis", blocks: [] };
 
   const sections: Section[] = [{ title: null, lines: [], items: [] }];
 
@@ -251,7 +252,7 @@ export function answerToBlocks(answer: string): { title: string; blocks: Respons
   const firstLine = text.split("\n").find((line) => line.trim().length > 0) ?? "";
   const title = headingTitle
     ? truncate(headingTitle, 60)
-    : truncate(stripInline(firstLine), 60) || "ZYREX Analysis";
+    : truncate(stripInline(firstLine), 60) || "HERMES Analysis";
 
   return { title, blocks };
 }
@@ -264,6 +265,27 @@ export interface AnalysisStreamHandlers {
   onOpen?: () => void;
   onToken?: (accumulated: string, chunk: string) => void;
   onDone?: () => void;
+  onOptions?: (options: StructuredOption[]) => void;
+  /** Closes the socket without inventing a completed answer. */
+  signal?: AbortSignal;
+}
+
+export function extractStructuredOptions(payload: unknown): StructuredOption[] | undefined {
+  if (!isRecord(payload)) return undefined;
+  const raw = payload.options ?? payload.question_options ?? payload.selectable_options;
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const options: StructuredOption[] = [];
+  for (const item of raw) {
+    if (typeof item === "string" && item.trim()) {
+      options.push({ id: item.trim(), label: item.trim() });
+      continue;
+    }
+    if (!isRecord(item)) continue;
+    const label = pickString(item, ["label", "text", "value", "name", "title"]);
+    if (!label) continue;
+    options.push({ id: pickString(item, ["id", "value"]) ?? label, label });
+  }
+  return options.length > 0 ? options : undefined;
 }
 
 export async function requestAnalysis(
@@ -279,9 +301,18 @@ export async function requestAnalysis(
     let socket: WebSocket | undefined;
     let settled = false;
     let answer = "";
+    let options: StructuredOption[] | undefined;
     const timer = setTimeout(() => {
-      finish({ status: "offline", reason: "The ZYREX response timed out before [DONE]. Please try again." });
+      finish({ status: "offline", reason: "The HERMES response timed out before [DONE]. Please try again." });
     }, aiBackend.timeoutMs);
+
+    if (handlers.signal?.aborted) {
+      finish({ status: "offline", reason: "Generation cancelled." });
+      return;
+    }
+    handlers.signal?.addEventListener("abort", () => {
+      finish({ status: "offline", reason: "Generation cancelled." });
+    });
 
     function finish(result: AnalysisResult) {
       if (settled) return;
@@ -312,7 +343,7 @@ export async function requestAnalysis(
             })),
           }));
         } catch {
-          finish({ status: "offline", reason: "Couldn't send the message to ZYREX." });
+          finish({ status: "offline", reason: "Couldn't send the message to HERMES." });
         }
       };
       socket.onmessage = (event: MessageEvent) => {
@@ -323,13 +354,20 @@ export async function requestAnalysis(
         if (isDoneSentinel(raw, payload)) {
           handlers.onDone?.();
           finish(answer.trim()
-            ? { status: "ready", ...answerToBlocks(answer) }
-            : { status: "offline", reason: "ZYREX finished without returning readable content." });
+            ? { status: "ready", ...answerToBlocks(answer), options }
+            : { status: "offline", reason: "HERMES finished without returning readable content." });
           return;
         }
         if (isRecord(payload) && (payload.error || payload.status === "error" || payload.status === "offline")) {
-          finish({ status: "offline", reason: pickString(payload, ["reason", "error", "message", "detail"]) ?? "ZYREX could not answer." });
+          finish({ status: "offline", reason: pickString(payload, ["reason", "error", "message", "detail"]) ?? "HERMES could not answer." });
           return;
+        }
+        if (isRecord(payload)) {
+          const nextOptions = extractStructuredOptions(payload);
+          if (nextOptions) {
+            options = nextOptions;
+            handlers.onOptions?.(nextOptions);
+          }
         }
         const chunk = typeof payload === "string" ? payload
           : isRecord(payload) ? [payload.chunk, payload.token, payload.text, payload.content]
@@ -341,7 +379,7 @@ export async function requestAnalysis(
         handlers.onToken?.(answer, chunk);
       };
       socket.onerror = () => finish({ status: "offline", reason: `Couldn't connect to ${aiAnswerUrl}. Check backend availability and allowed WebSocket origins.` });
-      socket.onclose = () => finish({ status: "offline", reason: "ZYREX disconnected before completing the response ([DONE]). Please try again." });
+      socket.onclose = () => finish({ status: "offline", reason: "HERMES disconnected before completing the response ([DONE]). Please try again." });
     } catch {
       finish({ status: "offline", reason: `Couldn't open a WebSocket connection to ${aiAnswerUrl}.` });
     }

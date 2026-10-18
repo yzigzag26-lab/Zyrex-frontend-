@@ -1,182 +1,193 @@
-import { useMemo, useState } from "react";
-import { emptyCopy, journalSchema } from "../data/appConfig";
-import { trades as datasetTrades } from "../data/dataset";
-import type { Trade } from "../types";
+import { FormEvent, useMemo, useState } from "react";
+import { emptyCopy } from "../data/appConfig";
+import { useZyrex } from "../store/ZyrexProvider";
+import type { JournalEntry, JournalSource } from "../types";
 import { PageShell } from "../components/layout/PageShell";
-import { TradeTable } from "../components/intelligence/TradeTable";
-import { Badge, Button, Panel, PanelHeader, Select } from "../components/ui/Controls";
+import { Badge, Button, Panel, Select } from "../components/ui/Controls";
 import { DataUnavailable } from "../components/ui/EmptyStates";
 import { Icon } from "../components/ui/Icons";
+import { Dialog } from "../components/ui/Dialog";
 
-/** Import options — UI affordances only, no importer is connected. */
-const importSources = [
-  { label: "Exchange account link", detail: "Read-only sync of your trade history", icon: "user" as const },
-  { label: "CSV / spreadsheet upload", detail: "Map columns to the journal schema", icon: "download" as const },
-  { label: "Manual journal entry", detail: "Log a single trade against the full schema", icon: "book" as const },
-];
-
-/** The locked journal schema, presented as a reference. */
-function SchemaPanel() {
-  return (
-    <Panel>
-      <PanelHeader
-        title="Journal Schema"
-        subtitle="Every entry captures these locked field groups"
-        icon="layers"
-        actions={<Badge tone="neutral">{journalSchema.length} groups</Badge>}
-      />
-      <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 xl:grid-cols-3">
-        {journalSchema.map((group) => (
-          <div key={group.key} className="rounded-xl border border-line bg-surface/60 p-3.5">
-            <div className="flex items-start gap-2.5">
-              <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg border border-line bg-surface2 text-accent">
-                <Icon name={group.icon} size={13} />
-              </span>
-              <div className="min-w-0">
-                <h3 className="text-[12.5px] font-semibold text-ink">{group.title}</h3>
-                <p className="mt-0.5 text-[10.5px] leading-relaxed text-muted">{group.description}</p>
-              </div>
-            </div>
-            <ul className="mt-3 flex flex-wrap gap-1.5">
-              {group.fields.map((field) => (
-                <li
-                  key={field}
-                  className="rounded-md border border-dashed border-line bg-surface2/50 px-1.5 py-0.5 text-[10px] text-ink2"
-                >
-                  {field}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-    </Panel>
-  );
-}
+const sourceLabel: Record<JournalSource, string> = {
+  "ai-analysis": "AI Analysis",
+  "manual-note": "Manual Note",
+  "imported-trade": "Imported Trade",
+};
 
 export function JournalPage() {
+  const { journal, addJournalEntry, updateJournalEntry, deleteJournalEntry, setFeedback } = useZyrex();
   const [query, setQuery] = useState("");
-  const [session, setSession] = useState("All");
-  const [selected, setSelected] = useState<Trade | null>(null);
-  const hasTrades = datasetTrades.length > 0;
+  const [source, setSource] = useState("All");
+  const [editor, setEditor] = useState<null | Partial<JournalEntry>>(null);
 
   const filtered = useMemo(() => {
-    if (!hasTrades) return [];
-    return datasetTrades.filter((trade) => {
+    return journal.filter((entry) => {
       const matchesQuery =
         query.trim() === "" ||
-        [trade.id, trade.symbol, trade.setup, trade.entryReason, trade.lessonLearned]
+        [entry.title, entry.content, entry.market, entry.tags.join(" ")]
           .join(" ")
           .toLowerCase()
           .includes(query.toLowerCase());
-      const matchesSession = session === "All" || trade.session === session;
-      return matchesQuery && matchesSession;
+      const matchesSource = source === "All" || entry.source === source;
+      return matchesQuery && matchesSource;
     });
-  }, [hasTrades, query, session]);
+  }, [journal, query, source]);
+
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    if (!editor?.title?.trim() || !editor.content?.trim()) return;
+    if (editor.id) {
+      setFeedback(
+        updateJournalEntry(editor.id, {
+          title: editor.title.trim(),
+          content: editor.content.trim(),
+          market: editor.market,
+          tags: editor.tags ?? [],
+        }),
+      );
+    } else {
+      setFeedback(
+        addJournalEntry({
+          title: editor.title.trim(),
+          date: new Date().toISOString().slice(0, 10),
+          content: editor.content.trim(),
+          market: editor.market,
+          tags: editor.tags ?? [],
+          source: "manual-note",
+        }),
+      );
+    }
+    setEditor(null);
+  };
 
   return (
     <PageShell
-      eyebrow="Trading Journal"
+      eyebrow="Records"
       title="Journal"
-      subtitle="Every entry captures identity, timing, plan, execution, result, psychology, mistakes, review and evidence."
-      wide
+      subtitle="Analyses, notes and imported trades. Hypothetical analysis is never labelled as an executed trade."
       actions={
-        <>
-          <Button variant="subtle" size="sm" icon="download">
-            Import trades
-          </Button>
-          <Button variant="primary" size="sm" icon="plus">
-            New entry
-          </Button>
-        </>
+        <Button variant="primary" size="sm" icon="plus" onClick={() => setEditor({ title: "", content: "", tags: [] })}>
+          New note
+        </Button>
       }
     >
       <Panel>
-        <PanelHeader
-          title="Journal Entries"
-          subtitle={hasTrades ? `${filtered.length} entries match your filters` : "No trade history yet"}
-          icon="book"
-          actions={<Badge tone="neutral">{datasetTrades.length} recorded</Badge>}
-        />
-
-        {hasTrades && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-3 sm:px-4">
-            <div className="relative min-w-[10rem] flex-1">
-              <Icon
-                name="search"
-                size={14}
-                className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted"
-              />
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search ID, symbol, setup or lesson…"
-                aria-label="Search journal entries"
-                className="h-9 w-full rounded-xl border border-line bg-surface2 pr-3 pl-9 text-xs text-ink placeholder:text-muted focus:border-accent/50 focus:outline-none"
-              />
-            </div>
-            <Select
-              label="Filter by session"
-              value={session}
-              onChange={setSession}
-              options={["All", "Asia", "London", "New York"]}
-              className="w-[8.5rem]"
+        <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+          <div className="relative min-w-[12rem] flex-1">
+            <Icon
+              name="search"
+              size={14}
+              className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted"
+            />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search title, content, market or tags…"
+              aria-label="Search journal"
+              className="h-9 w-full rounded-xl border border-line bg-surface2 pr-3 pl-9 text-xs text-ink placeholder:text-muted focus:border-blue/50 focus:outline-none"
             />
           </div>
-        )}
-
-        <div className="p-2 sm:p-3">
-          {filtered.length > 0 ? (
-            <TradeTable trades={filtered} onSelect={setSelected} selectedId={selected?.id} />
-          ) : (
-            <DataUnavailable
-              title={emptyCopy.journal.title}
-              hint={emptyCopy.journal.hint}
-              icon="book"
-              size="lg"
-              action={
-                <>
-                  <Button size="sm" variant="primary" icon="download">
-                    Import trades
-                  </Button>
-                  <Button size="sm" variant="subtle" icon="plus">
-                    Create journal entry
-                  </Button>
-                </>
-              }
-            />
-          )}
+          <Select
+            label="Filter by source"
+            value={source}
+            onChange={setSource}
+            options={["All", "ai-analysis", "manual-note", "imported-trade"]}
+            className="w-[11rem]"
+          />
         </div>
+
+        {filtered.length === 0 ? (
+          <DataUnavailable
+            title={emptyCopy.journal.title}
+            hint={emptyCopy.journal.hint}
+            icon="book"
+            size="lg"
+            action={
+              <Button variant="primary" size="sm" icon="plus" onClick={() => setEditor({ title: "", content: "", tags: [] })}>
+                Write a note
+              </Button>
+            }
+          />
+        ) : (
+          <ul className="divide-y divide-line">
+            {filtered.map((entry) => (
+              <li key={entry.id} className="px-4 py-4 sm:px-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm font-semibold text-ink">{entry.title}</h3>
+                      <Badge tone={entry.source === "imported-trade" ? "warn" : "neutral"}>
+                        {sourceLabel[entry.source]}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-[11px] text-muted">
+                      {entry.date}
+                      {entry.market ? ` · ${entry.market}` : ""}
+                    </p>
+                    <p className="mt-2 max-w-3xl text-[13px] leading-relaxed whitespace-pre-wrap text-ink2">
+                      {entry.content.length > 360 ? `${entry.content.slice(0, 360)}…` : entry.content}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="xs" variant="ghost" onClick={() => setEditor(entry)}>
+                      Edit
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="danger"
+                      onClick={() => {
+                        if (window.confirm("Delete this journal entry?")) {
+                          setFeedback(deleteJournalEntry(entry.id));
+                        }
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </Panel>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        {importSources.map((source) => (
-          <Panel key={source.label} interactive>
-            <button
-              type="button"
-              className="flex w-full items-start gap-3 p-4 text-left sm:p-5"
-              title="Importer not connected yet"
-            >
-              <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-line bg-surface2 text-accent">
-                <Icon name={source.icon} size={16} />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[13px] font-semibold text-ink">{source.label}</span>
-                <span className="mt-1 block text-[11.5px] leading-relaxed text-ink2">
-                  {source.detail}
-                </span>
-                <span className="mt-2.5 inline-flex items-center gap-1.5 rounded-md border border-dashed border-line px-1.5 py-0.5 text-[9.5px] font-medium tracking-wide text-muted uppercase">
-                  <Icon name="info" size={10} />
-                  Not connected
-                </span>
-              </span>
-            </button>
-          </Panel>
-        ))}
-      </div>
-
-      <SchemaPanel />
+      <Dialog open={Boolean(editor)} title="Journal entry" onClose={() => setEditor(null)} wide>
+        {editor && (
+          <form onSubmit={save} className="p-5">
+            <h3 className="text-base font-semibold text-ink">{editor.id ? "Edit entry" : "New note"}</h3>
+            <label className="mt-4 block text-[12px] font-medium text-ink2">Title</label>
+            <input
+              value={editor.title ?? ""}
+              onChange={(e) => setEditor({ ...editor, title: e.target.value })}
+              className="mt-1 h-10 w-full rounded-xl border border-line bg-surface2 px-3 text-sm"
+              required
+            />
+            <label className="mt-3 block text-[12px] font-medium text-ink2">Market (optional)</label>
+            <input
+              value={editor.market ?? ""}
+              onChange={(e) => setEditor({ ...editor, market: e.target.value })}
+              className="mt-1 h-10 w-full rounded-xl border border-line bg-surface2 px-3 text-sm"
+            />
+            <label className="mt-3 block text-[12px] font-medium text-ink2">Content</label>
+            <textarea
+              value={editor.content ?? ""}
+              onChange={(e) => setEditor({ ...editor, content: e.target.value })}
+              rows={8}
+              required
+              className="mt-1 w-full rounded-xl border border-line bg-surface2 px-3 py-2 text-sm"
+            />
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setEditor(null)}>
+                Cancel
+              </Button>
+              <Button variant="primary" type="submit">
+                Save
+              </Button>
+            </div>
+          </form>
+        )}
+      </Dialog>
     </PageShell>
   );
 }

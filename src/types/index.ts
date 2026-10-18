@@ -1,13 +1,12 @@
 /**
- * ZYREX AI — domain types
+ * HERMES AI — domain types
  *
- * These types are the contract between the UI and a future data/AI layer.
- * Every value the interface renders is typed here so a real backend
- * (trade import, analytics engine, ZYREX AI service) can be attached later
- * without redesigning any component.
+ * Contract between the UI and future data/AI/persistence layers.
+ * No fabricated trading values live here.
  */
 
-export type Theme = "dark" | "light";
+export type Theme = "dark" | "light" | "system";
+export type ResolvedTheme = "dark" | "light";
 
 export type Direction = "long" | "short";
 export type TradeOutcome = "win" | "loss" | "breakeven";
@@ -15,7 +14,6 @@ export type TradingSession = "Asia" | "London" | "New York";
 export type MarketType = "Spot" | "Futures";
 export type ExchangeName = "Binance" | "Bybit" | "OKX" | "Coinbase";
 
-/** AI persona — a frontend presentation mode only (no separate models). */
 export type AiModeId = "analyst" | "coach" | "research";
 
 export interface AiMode {
@@ -26,27 +24,19 @@ export interface AiMode {
   icon: "chart" | "brain" | "search";
 }
 
-/* -------------------------------------------------------------- connection */
-
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
+export type ServiceStatus = ConnectionState | "not_configured";
 
-/**
- * Describes a single integration point that the frontend is waiting on.
- * Rendered as-is — never faked.
- */
 export interface IntegrationPoint {
-  id: "ai" | "tradeData" | "account" | "notifications";
+  id: "ai" | "tradeData" | "account" | "notifications" | "marketData";
   label: string;
-  state: ConnectionState;
+  state: ConnectionState | "not_configured";
   statusLabel: string;
   detail: string;
   requiredFor: string;
 }
 
-/* ------------------------------------------------------------------ journal */
-
 export interface EvidenceShot {
-  /** Stage of the trade the screenshot belongs to. */
   label: "Before" | "During" | "After";
   caption: string;
   capturedAt: string;
@@ -55,9 +45,7 @@ export interface EvidenceShot {
   preview?: number[];
 }
 
-/** A single journal entry — mirrors the locked journal field groups. */
 export interface Trade {
-  // IDENTITY
   id: string;
   account: string;
   exchange: ExchangeName;
@@ -65,15 +53,11 @@ export interface Trade {
   market: MarketType;
   direction: Direction;
   tradeType: string;
-
-  // TIMING
   date: string;
   entryTime: string;
   exitTime: string;
   durationMinutes: number;
   session: TradingSession;
-
-  // PLAN
   setup: string;
   marketCondition: string;
   entryReason: string;
@@ -82,8 +66,6 @@ export interface Trade {
   plannedTarget: number;
   plannedRisk: number;
   riskReward: number;
-
-  // EXECUTION
   actualEntry: number;
   actualExit: number;
   positionSize: number;
@@ -91,37 +73,26 @@ export interface Trade {
   actualTarget: number;
   fees: number;
   slippage: number;
-
-  // RESULT
   grossPnl: number;
   netPnl: number;
   riskAmount: number;
   rMultiple: number;
   outcome: TradeOutcome;
-
-  // PSYCHOLOGY
   emotionBefore: string;
   emotionDuring: string;
   emotionAfter: string;
-  confidence: number | null; // 1–10 — null until calculated from real entries
-  discipline: number | null; // 1–10 — null until calculated from real entries
-
-  // MISTAKES
+  confidence: number | null;
+  discipline: number | null;
   mistakes: string[];
   ruleFollowed: boolean;
   ruleBroken: string | null;
-
-  // REVIEW
   whatWentWell: string;
   whatWentWrong: string;
   lessonLearned: string;
   improvement: string;
-
-  // EVIDENCE
   evidence: EvidenceShot[];
 }
 
-/** Locked journal field groups — schema reference for the UI. */
 export interface JournalSchemaGroup {
   key: string;
   title: string;
@@ -129,8 +100,6 @@ export interface JournalSchemaGroup {
   description: string;
   fields: string[];
 }
-
-/* ---------------------------------------------------------------- dashboard */
 
 export interface PerformanceMetrics {
   totalTrades: number;
@@ -190,8 +159,6 @@ export interface PatternInsight {
   state: "confirmed" | "emerging" | "watch";
 }
 
-/* ----------------------------------------------------------------- research */
-
 export type ResearchStatus = "Analyzing" | "In Review" | "Complete" | "Paused";
 
 export interface ResearchProject {
@@ -209,8 +176,6 @@ export interface ResearchProject {
   conclusions: string[];
   evidence: { label: string; caption: string; source?: string | null; preview?: number[] }[];
 }
-
-/* --------------------------------------------------------------- AI / chat */
 
 export type ResponseBlock =
   | { type: "summary"; text: string }
@@ -246,7 +211,6 @@ export interface MockAiResponse {
   blocks: ResponseBlock[];
 }
 
-/** What ZYREX AI can do once the backend is connected. */
 export interface Capability {
   id: string;
   label: string;
@@ -255,40 +219,51 @@ export interface Capability {
   requires: "ai" | "tradeData";
 }
 
-/**
- * Result of an analysis request. While the AI backend is not connected the
- * resolver returns `{ status: "offline" }` and the UI renders the offline
- * notice — never a simulated answer.
- */
 export type AnalysisResult =
   | { status: "offline"; reason: string }
-  | { status: "ready"; title: string; blocks: ResponseBlock[] };
+  | { status: "ready"; title: string; blocks: ResponseBlock[]; options?: StructuredOption[] };
 
-/** Payload sent to the ZYREX backend when asking for an answer. */
 export interface AnalysisRequest {
   prompt: string;
   mode: AiModeId;
-  /**
-   * Conversation context. The backend's roles are "user" | "assistant" —
-   * "zyrex" is a frontend-only role and must never reach the wire.
-   */
   history?: Array<{ role: "user" | "assistant"; text?: string }>;
 }
 
 export type ChatRole = "user" | "assistant" | "zyrex";
 
+export type GenerationState =
+  | "idle"
+  | "processing"
+  | "streaming"
+  | "completed"
+  | "cancelled"
+  | "error";
+
+export interface StructuredOption {
+  id: string;
+  label: string;
+}
+
+export interface ChatAttachmentMeta {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  kind: "image" | "document";
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
   createdAt: string;
-  /** Plain user prompt (user messages). */
   text?: string;
-  /** Offline notice vs. real structured payload (once connected). */
-  kind?: "offline" | "analysis";
+  kind?: "offline" | "analysis" | "cancelled";
   title?: string;
   blocks?: ResponseBlock[];
   mode?: AiModeId;
   simulated?: boolean;
+  options?: StructuredOption[];
+  attachments?: ChatAttachmentMeta[];
 }
 
 export interface Conversation {
@@ -297,9 +272,58 @@ export interface Conversation {
   mode: AiModeId;
   updatedAt: string;
   messages: ChatMessage[];
+  pinned?: boolean;
 }
 
-/* ---------------------------------------------------------------- settings */
+export type JournalSource = "ai-analysis" | "manual-note" | "imported-trade";
+
+export interface JournalEntry {
+  id: string;
+  title: string;
+  date: string;
+  content: string;
+  market?: string;
+  tags: string[];
+  source: JournalSource;
+  conversationId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type StrategyStatus = "draft" | "active" | "paused" | "archived";
+
+export interface Strategy {
+  id: string;
+  name: string;
+  description: string;
+  rules: string;
+  market: string;
+  timeframe: string;
+  riskParameters: string;
+  status: StrategyStatus;
+  version: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminProfile {
+  displayName: string;
+  imageDataUrl: string | null;
+  imageName: string | null;
+  imageUpdatedAt: string | null;
+}
+
+export type ConnectorStatus = "connected" | "disconnected" | "unavailable" | "error" | "not_configured";
+
+export interface Connector {
+  id: string;
+  name: string;
+  status: ConnectorStatus;
+  description: string;
+  actionLabel: string;
+}
+
+export type TradingMode = "not_configured" | "paper" | "live" | "disabled";
 
 export interface AppSettings {
   appearance: {
@@ -317,6 +341,7 @@ export interface AppSettings {
   aiPreferences: {
     defaultMode: AiModeId;
     responseDetail: "concise" | "balanced" | "deep";
+    analysisDetail: "overview" | "standard" | "exhaustive";
     showConfidence: boolean;
     autoAnalyzeAfterTrade: boolean;
   };
@@ -325,6 +350,11 @@ export interface AppSettings {
     riskUnit: "R" | "USD" | "Percent";
     defaultSession: TradingSession | "All";
     includeFeesInPnl: boolean;
+  };
+  marketPreferences: {
+    preferredInstruments: string;
+    defaultMarket: string;
+    timezone: string;
   };
   notifications: {
     weeklyReview: boolean;
@@ -338,18 +368,26 @@ export interface AppSettings {
     dateFormat: string;
     hideSmallPnl: boolean;
   };
+  privacy: {
+    allowSharing: boolean;
+  };
+  tradingSafety: {
+    tradingMode: TradingMode;
+    confirmLiveOrders: boolean;
+  };
 }
 
 export type PageId =
   | "dashboard"
-  | "journal"
-  | "analytics"
-  | "recent"
-  | "research"
   | "ai"
-  | "settings";
+  | "strategies"
+  | "journal"
+  | "settings"
+  | "analytics"
+  | "research"
+  | "recent";
 
-export type NavIcon = "grid" | "book" | "clock" | "chart" | "flask" | "spark" | "settings";
+export type NavIcon = "grid" | "book" | "chart" | "flask" | "spark" | "settings" | "target" | "clock";
 
 export interface NavItem {
   id: PageId;
@@ -358,7 +396,6 @@ export interface NavItem {
   badge?: string;
 }
 
-/** Step shown in the empty dashboard onboarding list. */
 export interface OnboardingStep {
   id: string;
   index: number;
@@ -366,4 +403,18 @@ export interface OnboardingStep {
   detail: string;
   icon: "download" | "book" | "spark";
   target: PageId;
+}
+
+export interface PieSlice {
+  label: string;
+  value: number;
+  color: string;
+}
+
+export interface AccountOverviewField {
+  id: string;
+  label: string;
+  value: string;
+  hint: string;
+  connected: boolean;
 }

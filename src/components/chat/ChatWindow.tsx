@@ -1,141 +1,210 @@
-import { useEffect, useRef, useState, useId } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useZyrex } from "../../store/ZyrexProvider";
+import { HermesLogo } from "../brand/HermesLogo";
 import { Icon } from "../ui/Icons";
+import { Popover } from "../ui/Popover";
+import { ConnectionPill } from "../ui/EmptyStates";
+import { Composer } from "./Composer";
 import { UserMessage } from "./UserMessage";
 import { ZyrexMessage } from "./ZyrexMessage";
+import { Dialog } from "../ui/Dialog";
 
 export function ChatWindow() {
   const {
     activeConversation,
     messages,
-    sendMessage,
     isStreaming,
+    generationState,
     startNewConversation,
+    shareConversation,
+    togglePin,
+    addActiveToJournal,
+    setFeedback,
+    aiStatus,
+    aiStatusLabel,
+    isMobile,
+    setSidebarOpen,
   } = useZyrex();
 
-  const [input, setInput] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputId = useId();
+  const [journalOpen, setJournalOpen] = useState(false);
+  const [journalTitle, setJournalTitle] = useState("");
+  const [menuNotice, setMenuNotice] = useState<string | null>(null);
 
   const hasMessages = messages.length > 0;
-
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
-  }, [input]);
+  const last = messages[messages.length - 1];
+  const streamingLast =
+    isStreaming && last?.role !== "user" && (generationState === "processing" || generationState === "streaming");
 
   useEffect(() => {
     const node = scrollRef.current;
     if (!node) return;
     node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
-  }, [messages.length, isStreaming]);
-
-  const handleSubmit = () => {
-    const trimmed = input.trim();
-    if (!trimmed || isStreaming) return;
-    sendMessage(trimmed);
-    setInput("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
-  };
+  }, [messages, isStreaming]);
 
   return (
-    <div className="flex h-full w-full flex-col bg-[#212121] text-white overflow-hidden">
-      {/* Top Bar inside Chat View */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#2f2f2f] bg-[#171717] text-white shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-sm text-white">
-            {hasMessages ? activeConversation?.title : "ZYREX AI"}
-          </span>
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-bg">
+      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line px-3 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          {isMobile && (
+            <button
+              type="button"
+              aria-label="Open navigation"
+              onClick={() => setSidebarOpen(true)}
+              className="grid size-9 place-items-center rounded-lg text-ink2 hover:bg-surface2 hover:text-ink"
+            >
+              <Icon name="menu" size={18} />
+            </button>
+          )}
+          <h1 className="truncate text-sm font-semibold text-ink">
+            {hasMessages ? activeConversation?.title : "HERMES AI"}
+          </h1>
+          {activeConversation?.pinned && <Icon name="pin" size={12} className="text-gold" />}
         </div>
-        <button
-          type="button"
-          onClick={startNewConversation}
-          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[#2f2f2f] hover:bg-[#383838] text-white border border-[#424242] transition-colors"
-        >
-          + New chat
-        </button>
-      </div>
-
-      {/* Center Column Timeline */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 py-6 space-y-6 w-full text-white"
-      >
-        {hasMessages ? (
-          <div className="space-y-6 w-full">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className="w-full max-w-2xl md:max-w-3xl mx-auto flex gap-4 items-start text-white"
+        <div className="flex items-center gap-1.5">
+          <ConnectionPill state={aiStatus} label={aiStatusLabel} className="hidden sm:inline-flex" />
+          <Popover
+            label="Conversation actions"
+            widthClass="w-56"
+            trigger={({ open, toggle }) => (
+              <button
+                type="button"
+                aria-label="Conversation menu"
+                aria-expanded={open}
+                onClick={toggle}
+                className="grid size-9 place-items-center rounded-full border border-line text-ink2 hover:bg-surface2 hover:text-ink"
               >
+                <Icon name="moreH" size={16} />
+              </button>
+            )}
+          >
+            {({ close }) => (
+              <div className="py-1">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-ink hover:bg-surface2"
+                  onClick={() => {
+                    const result = shareConversation();
+                    setMenuNotice(result.message);
+                    setFeedback(result);
+                    close();
+                  }}
+                >
+                  <Icon name="share" size={14} />
+                  Share
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-ink hover:bg-surface2"
+                  onClick={() => {
+                    if (activeConversation) togglePin(activeConversation.id);
+                    close();
+                  }}
+                  disabled={!activeConversation}
+                >
+                  <Icon name="pin" size={14} />
+                  {activeConversation?.pinned ? "Unpin" : "Pin"}
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-ink hover:bg-surface2"
+                  onClick={() => {
+                    setJournalTitle(activeConversation?.title ?? "");
+                    setJournalOpen(true);
+                    close();
+                  }}
+                >
+                  <Icon name="book" size={14} />
+                  Add to Journal
+                </button>
+              </div>
+            )}
+          </Popover>
+          <button
+            type="button"
+            onClick={startNewConversation}
+            className="hidden h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-xs font-medium text-ink hover:bg-surface2 sm:inline-flex"
+          >
+            <Icon name="plus" size={12} />
+            New
+          </button>
+        </div>
+      </header>
+
+      <div ref={scrollRef} className="z-scroll min-h-0 flex-1 overflow-y-auto px-4 py-6">
+        {hasMessages ? (
+          <div className="mx-auto w-full max-w-3xl space-y-6">
+            {messages.map((message, index) => (
+              <div key={message.id}>
                 {message.role === "user" ? (
                   <UserMessage message={message} />
                 ) : (
-                  <ZyrexMessage message={message} />
+                  <ZyrexMessage
+                    message={message}
+                    streaming={streamingLast && index === messages.length - 1}
+                  />
                 )}
               </div>
             ))}
           </div>
         ) : (
-          <div className="w-full max-w-2xl md:max-w-3xl mx-auto flex flex-col items-center justify-center h-full min-h-[340px] text-center text-white">
-            <h1 className="text-3xl font-bold tracking-tight text-white mb-2">
-              Welcom linkuxboss
-            </h1>
-            <p className="text-sm text-[#b4b4b4]">
-              Ask ZYREX AI anything about your trading, risk, psychology, or market setups.
+          <div className="mx-auto flex h-full min-h-[280px] w-full max-w-3xl flex-col items-center justify-center text-center">
+            <HermesLogo size={64} />
+            <h2 className="mt-5 text-2xl font-semibold tracking-tight text-ink">HERMES AI</h2>
+            <p className="mt-2 max-w-md text-sm text-ink2">
+              Private trading intelligence. Ask about structure, risk, or discipline — answers stream from the
+              connected AI service.
             </p>
           </div>
         )}
       </div>
 
-      {/* Dynamic Blue Circling Indicator */}
-      {isStreaming && (
-        <div className="py-2.5 flex items-center justify-center shrink-0">
-          <div className="w-3 h-3 bg-[#007bff] rounded-full animate-pulse shadow-[0_0_12px_rgba(0,123,255,0.8)]" />
-        </div>
+      {menuNotice && (
+        <p className="px-4 pb-1 text-center text-[11px] text-muted" role="status">
+          {menuNotice}
+        </p>
       )}
 
-      {/* Bottom Chat Console */}
-      <div className="p-4 bg-[#212121] shrink-0">
-        <div className="max-w-2xl md:max-w-3xl mx-auto relative flex items-center bg-[#2f2f2f] rounded-2xl border border-[#424242] shadow-sm px-3 py-2">
-          <label htmlFor={inputId} className="sr-only">
-            Send a message to ZYREX
+      <Composer />
+
+      <Dialog open={journalOpen} title="Add to Journal" onClose={() => setJournalOpen(false)}>
+        <div className="p-5">
+          <h3 className="text-base font-semibold text-ink">Add to Journal</h3>
+          <p className="mt-1 text-[12px] leading-relaxed text-ink2">
+            Saves this conversation as an AI analysis. This is not an executed trade.
+          </p>
+          <label className="mt-4 block text-[12px] font-medium text-ink2" htmlFor="journal-title">
+            Title
           </label>
-          <textarea
-            id={inputId}
-            ref={textareaRef}
-            rows={1}
-            value={input}
-            disabled={isStreaming}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
-            placeholder="Message ZYREX..."
-            className="w-full resize-none bg-transparent px-2 py-1 text-sm text-white placeholder-[#b4b4b4] focus:outline-none max-h-[168px] min-h-[24px]"
+          <input
+            id="journal-title"
+            value={journalTitle}
+            onChange={(e) => setJournalTitle(e.target.value)}
+            className="mt-1 h-10 w-full rounded-xl border border-line bg-surface2 px-3 text-sm text-ink"
           />
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!input.trim() || isStreaming}
-            aria-label="Send message"
-            className="p-1.5 rounded-xl bg-white text-[#212121] hover:bg-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all shrink-0 ml-2"
-          >
-            <Icon name="arrowUp" size={16} />
-          </button>
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setJournalOpen(false)}
+              className="h-9 rounded-lg px-3 text-xs font-medium text-ink2 hover:bg-surface2"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const result = addActiveToJournal(journalTitle);
+                setFeedback(result);
+                setMenuNotice(result.message);
+                setJournalOpen(false);
+              }}
+              className="h-9 rounded-lg bg-gold px-3 text-xs font-semibold text-accentink"
+            >
+              Save
+            </button>
+          </div>
         </div>
-        <p className="text-[11px] text-center text-[#8e8e8e] mt-2">
-          ZYREX AI can make mistakes. Verify important financial analysis.
-        </p>
-      </div>
+      </Dialog>
     </div>
   );
 }

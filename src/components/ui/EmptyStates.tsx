@@ -181,7 +181,7 @@ export function ConnectionPill({
   label,
   className,
 }: {
-  state: "connected" | "disconnected" | "connecting" | "error";
+  state: "connected" | "disconnected" | "connecting" | "error" | "not_configured";
   label: string;
   className?: string;
 }) {
@@ -189,7 +189,7 @@ export function ConnectionPill({
     state === "connected"
       ? "border-pos/30 bg-pos/10 text-pos"
       : state === "connecting"
-        ? "border-accent/30 bg-accent/10 text-accent"
+        ? "border-blue/30 bg-blue/10 text-blue"
         : state === "error"
           ? "border-neg/30 bg-neg/10 text-neg"
           : "border-line bg-surface2 text-ink2";

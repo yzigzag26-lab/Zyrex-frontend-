@@ -1,361 +1,198 @@
-import {
-  emptyCopy,
-  integrations,
-  onboardingSteps,
-} from "../data/appConfig";
-import {
-  equityCurve,
-  metrics,
-  patternInsights,
-  psychologyFindings,
-  sessionPerformance,
-  setupPerformance,
-  trades,
-} from "../data/dataset";
+import { emptyCopy, integrations } from "../data/appConfig";
+import { trades } from "../data/dataset";
 import { useZyrex } from "../store/ZyrexProvider";
-import { EquityCurve } from "../components/charts/EquityCurve";
-import { HBarChart } from "../components/charts/Bars";
-import { formatR } from "../utils/format";
 import { PageShell } from "../components/layout/PageShell";
-import { PerformanceGrid } from "../components/intelligence/PerformanceCard";
-import { PatternCard } from "../components/intelligence/PatternCard";
-import { TradeTable } from "../components/intelligence/TradeTable";
-import { Badge, Button, Panel, PanelHeader } from "../components/ui/Controls";
-import { ChartPlaceholder, ConnectionPill, DataUnavailable } from "../components/ui/EmptyStates";
+import { PieChart } from "../components/charts/PieChart";
+import { Badge, Panel, PanelHeader } from "../components/ui/Controls";
+import { ConnectionPill, DataUnavailable } from "../components/ui/EmptyStates";
 import { Icon } from "../components/ui/Icons";
+import type { ServiceStatus } from "../types";
 
-/** Onboarding checklist shown while no trading data exists. */
-function OnboardingPanel() {
-  const { navigate } = useZyrex();
+const accountFields = [
+  { id: "balance", label: "Total balance", value: "Not connected", hint: "Requires a verified broker connection" },
+  { id: "available", label: "Available funds", value: "Not connected", hint: "Requires a verified broker connection" },
+  { id: "equity", label: "Total equity", value: "Not connected", hint: "Requires a verified broker connection" },
+  { id: "realized", label: "Realized profit/loss", value: "No data yet", hint: "No closed trades in this workspace" },
+  { id: "unrealized", label: "Unrealized profit/loss", value: "No data yet", hint: "No open positions reported" },
+  { id: "positions", label: "Active positions", value: "No data yet", hint: "Broker is not connected" },
+  { id: "orders", label: "Open orders", value: "No data yet", hint: "Broker is not connected" },
+] as const;
 
-  return (
-    <Panel className="z-rise">
-      <div className="grid gap-6 p-5 sm:p-7 lg:grid-cols-[1.1fr_1fr] lg:gap-10">
-        <div>
-          <ConnectionPill state="disconnected" label="No trading data found" />
-          <h2 className="mt-4 text-xl font-semibold text-ink sm:text-[1.625rem]">
-            {emptyCopy.dashboard.title}
-          </h2>
-          <p className="mt-2.5 max-w-md text-[13px] leading-relaxed text-ink2">
-            ZYREX AI is ready to analyze your trading. Metrics, analytics and pattern detection
-            activate automatically once trade history exists — nothing is estimated in the meantime.
-          </p>
+const activityGroups = [
+  { id: "trades", label: "Recent trades", icon: "chart" as const },
+  { id: "orders", label: "Recent orders", icon: "layers" as const },
+  { id: "analyses", label: "Recent analyses", icon: "spark" as const },
+  { id: "journal", label: "Recent journal entries", icon: "book" as const },
+  { id: "system", label: "Recent system events", icon: "cpu" as const },
+];
 
-          <div className="mt-5 flex flex-wrap gap-2">
-            <Button variant="primary" size="sm" icon="download" onClick={() => navigate("journal")}>
-              Import trades
-            </Button>
-          </div>
-        </div>
-
-        <div>
-          <p className="z-eyebrow mb-3.5">To begin</p>
-          <ol className="space-y-2.5">
-            {onboardingSteps.map((step) => (
-              <li key={step.id}>
-                <button
-                  type="button"
-                  onClick={() => navigate(step.target)}
-                  className="group flex w-full items-start gap-3.5 rounded-xl border border-line bg-surface/60 p-3.5 text-left transition-all hover:border-accent/40 hover:bg-surface2"
-                >
-                  <span className="z-num grid size-7 shrink-0 place-items-center rounded-lg border border-line bg-surface2 text-[11px] font-semibold text-ink2">
-                    {step.index}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2">
-                      <span className="text-[13px] font-semibold text-ink">{step.title}</span>
-                      <Icon
-                        name="arrowRight"
-                        size={12}
-                        className="text-muted transition-transform group-hover:translate-x-0.5"
-                      />
-                    </span>
-                    <span className="mt-1 block text-[11.5px] leading-relaxed text-ink2">
-                      {step.detail}
-                    </span>
-                  </span>
-                  <Icon name={step.icon} size={15} className="mt-0.5 shrink-0 text-muted" />
-                </button>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </div>
-    </Panel>
-  );
-}
-
-/** Integration status panel — states what the workspace is waiting on. */
-function IntegrationPanel() {
-  const list = Object.values(integrations);
-  return (
-    <Panel>
-      <PanelHeader
-        title="Connections"
-        subtitle="What this workspace is waiting on"
-        icon="cpu"
-        actions={<Badge tone="neutral">{list.length} integrations</Badge>}
-      />
-      <ul className="divide-y divide-line">
-        {list.map((integration) => (
-          <li key={integration.id} className="flex items-start gap-3 px-4 py-3.5 sm:px-5">
-            <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border border-line bg-surface2 text-muted">
-              <Icon
-                name={integration.id === "ai" ? "spark" : integration.id === "tradeData" ? "layers" : integration.id === "account" ? "user" : "bell"}
-                size={14}
-              />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[12.5px] font-semibold text-ink">{integration.label}</p>
-                <ConnectionPill state={integration.state} label={integration.statusLabel} />
-              </div>
-              <p className="mt-1 text-[11.5px] leading-relaxed text-ink2">{integration.detail}</p>
-              <p className="mt-1 text-[10.5px] leading-relaxed text-muted">
-                Enables: {integration.requiredFor}
-              </p>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </Panel>
-  );
+function statusLabel(state: ServiceStatus): string {
+  switch (state) {
+    case "connected":
+      return "Connected";
+    case "connecting":
+      return "Connecting";
+    case "error":
+      return "Error";
+    case "not_configured":
+      return "Not configured";
+    default:
+      return "Disconnected";
+  }
 }
 
 export function Dashboard() {
-  const { navigate, hasTradeData } = useZyrex();
+  const { aiStatus, aiStatusLabel, aiStatusDetail, settings, journal } = useZyrex();
+  const tradingMode = settings.tradingSafety.tradingMode;
+
+  const services: { id: string; label: string; state: ServiceStatus; detail: string }[] = [
+    { id: "ai", label: "AI service", state: aiStatus, detail: aiStatusDetail },
+    {
+      id: "ws",
+      label: "WebSocket connection",
+      state: aiStatus,
+      detail: "Same channel as the AI service — status is measured, not assumed.",
+    },
+    {
+      id: "market",
+      label: "Market-data service",
+      state: "not_configured",
+      detail: integrations.marketData.detail,
+    },
+    {
+      id: "broker",
+      label: "Connected broker",
+      state: "disconnected",
+      detail: integrations.account.detail,
+    },
+    {
+      id: "mode",
+      label: "Trading mode",
+      state: tradingMode === "not_configured" ? "not_configured" : "disconnected",
+      detail:
+        tradingMode === "not_configured"
+          ? "No live or paper execution is configured."
+          : `Preference stored as ${tradingMode}. Execution is not connected.`,
+    },
+  ];
 
   return (
     <PageShell
-      eyebrow="Performance Overview"
+      eyebrow="Overview"
       title="Dashboard"
-      subtitle={
-        hasTradeData
-          ? "Aggregate performance across your connected trading data."
-          : "Your trading intelligence workspace is ready and waiting for data."
-      }
+      subtitle="Account, allocation and system status. Figures appear only from verified sources."
       wide
-      actions={
-        <>
-          <ConnectionPill state="disconnected" label="No data source" className="hidden sm:inline-flex" />
-          <Button variant="subtle" size="sm" icon="download" onClick={() => navigate("journal")}>
-            Import trades
-          </Button>
-        </>
-      }
     >
-      {!hasTradeData && <OnboardingPanel />}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-ink">Account overview</h2>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {accountFields.map((field) => (
+            <Panel key={field.id} className="p-4">
+              <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">{field.label}</p>
+              <p className="mt-2 text-lg font-semibold text-ink2">{field.value}</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted">{field.hint}</p>
+            </Panel>
+          ))}
+        </div>
+      </section>
 
-      <PerformanceGrid metrics={metrics} />
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-ink">Financial analysis</h2>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Panel className="p-5">
+            <PieChart
+              title="Portfolio allocation by asset"
+              source="Connected broker holdings — none linked"
+              slices={[]}
+            />
+          </Panel>
+          <Panel className="p-5">
+            <PieChart
+              title="Allocation by market"
+              source="Connected broker holdings — none linked"
+              slices={[]}
+            />
+          </Panel>
+          <Panel className="p-5">
+            <PieChart
+              title="Allocation by strategy"
+              source="Executed strategy fills — none recorded"
+              slices={[]}
+            />
+          </Panel>
+        </div>
+      </section>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Panel className="lg:col-span-2">
+      <section>
+        <Panel>
           <PanelHeader
-            title="Equity Curve"
-            subtitle="Cumulative account equity"
-            eyebrow="Account"
+            title="Market overview"
+            subtitle="Selected instruments"
             icon="trendUp"
-            actions={
-              <Badge tone="neutral" icon="info">
-                {emptyCopy.chart.title}
-              </Badge>
-            }
+            actions={<Badge tone="neutral">Not configured</Badge>}
           />
-          <div className="p-4 sm:p-5">
-            {equityCurve.length > 1 ? (
-              <EquityCurve data={equityCurve} height={260} />
-            ) : (
-              <ChartPlaceholder
-                title={emptyCopy.chart.title}
-                hint={emptyCopy.chart.hint}
-                height={260}
-                icon="trendUp"
-              />
-            )}
-          </div>
-        </Panel>
-
-        <Panel className="flex flex-col">
-          <PanelHeader
-            title="ZYREX Intelligence"
-            subtitle="Signals detected in your journal"
-            eyebrow="Pattern Detection"
-            icon="spark"
-            actions={<ConnectionPill state="disconnected" label="Offline" />}
-          />
-          <div className="flex flex-1 flex-col gap-2.5 p-4">
-            {patternInsights.length > 0 ? (
-              patternInsights.map((insight) => (
-                <PatternCard key={insight.id} insight={insight} variant="inline" />
-              ))
-            ) : (
-              <>
-                <DataUnavailable
-                  title="No patterns detected"
-                  hint="ZYREX AI detects patterns once trade history and the analysis backend are connected."
-                  icon="target"
-                  size="sm"
-                  className="flex-1"
-                />
-                <div className="rounded-xl border border-dashed border-line bg-surface2/40 p-3">
-                  <p className="z-eyebrow mb-2">Pattern detection requires</p>
-                  <ul className="space-y-1.5">
-                    <li className="flex items-center gap-2 text-[11px] text-ink2">
-                      <Icon name="layers" size={12} className="text-muted" />
-                      Imported trade history
-                    </li>
-                    <li className="flex items-center gap-2 text-[11px] text-ink2">
-                      <Icon name="spark" size={12} className="text-muted" />
-                      Connected ZYREX AI backend
-                    </li>
-                  </ul>
-                </div>
-              </>
-            )}
-          </div>
-        </Panel>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel>
-          <PanelHeader title="Session Performance" subtitle="Expectancy by trading session" icon="clock" />
-          <div className="p-4 sm:p-5">
-            {sessionPerformance.length > 0 ? (
-              <HBarChart
-                data={sessionPerformance.map((group) => ({
-                  label: group.label,
-                  value: group.expectancy,
-                  display: formatR(group.expectancy),
-                  tone: (group.expectancy >= 0.5
-                    ? "pos"
-                    : group.expectancy >= 0
-                      ? "warn"
-                      : "neg") as "pos" | "neg" | "warn",
-                  meta: `${group.trades} trades`,
-                }))}
-              />
-            ) : (
-              <>
-                <DataUnavailable
-                  title={emptyCopy.metrics.title}
-                  hint={emptyCopy.metrics.hint}
-                  icon="clock"
-                  size="sm"
-                />
-                <p className="mt-3 text-center text-[10.5px] text-muted">
-                  Asia · London · New York breakdowns appear here
-                </p>
-              </>
-            )}
-          </div>
-        </Panel>
-
-        <Panel>
-          <PanelHeader title="Setup Performance" subtitle="Expectancy by setup type" icon="target" />
-          <div className="p-4 sm:p-5">
-            {setupPerformance.length > 0 ? (
-              <HBarChart
-                data={setupPerformance.map((group) => ({
-                  label: group.label,
-                  value: group.expectancy,
-                  display: formatR(group.expectancy),
-                  tone: (group.expectancy >= 0.5
-                    ? "pos"
-                    : group.expectancy >= 0
-                      ? "warn"
-                      : "neg") as "pos" | "neg" | "warn",
-                  meta: `${group.trades} trades`,
-                }))}
-              />
-            ) : (
-              <>
-                <DataUnavailable
-                  title={emptyCopy.metrics.title}
-                  hint={emptyCopy.metrics.hint}
-                  icon="target"
-                  size="sm"
-                />
-                <p className="mt-3 text-center text-[10.5px] text-muted">
-                  Setup rankings appear here once trades are tagged
-                </p>
-              </>
-            )}
-          </div>
-        </Panel>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <IntegrationPanel />
-
-        <Panel>
-          <PanelHeader
-            title="Psychology Readiness"
-            subtitle="What is required for psychology scoring"
-            icon="brain"
-          />
-          <div className="space-y-3 p-4 sm:p-5">
+          <div className="p-5">
             <DataUnavailable
-              title="No psychology data yet"
-              hint="Confidence and discipline are scored from your own journal entries. Nothing is assumed."
-              icon="brain"
+              title={emptyCopy.market.title}
+              hint={emptyCopy.market.hint}
+              icon="trendUp"
               size="sm"
             />
-            <ul className="space-y-2">
-              {[
-                "Log emotion before, during and after each trade",
-                "Score discipline and confidence per entry",
-                "Once scored, ZYREX correlates them with results",
-              ].map((item, index) => (
-                <li key={item} className="flex items-start gap-2.5">
-                  <span className="z-num mt-px grid size-5 shrink-0 place-items-center rounded-md border border-line bg-surface2 text-[10px] font-semibold text-ink2">
-                    {index + 1}
-                  </span>
-                  <span className="text-[11.5px] leading-relaxed text-ink2">{item}</span>
-                </li>
-              ))}
-            </ul>
-            {psychologyFindings.length === 0 && (
-              <p className="text-[10.5px] text-muted">
-                No psychology findings calculated · 0 scored entries
-              </p>
-            )}
           </div>
         </Panel>
-      </div>
+      </section>
 
-      <Panel>
-        <PanelHeader
-          title="Recent Journal Entries"
-          subtitle="Latest trades from your journal"
-          icon="book"
-          actions={
-            <Button size="xs" variant="subtle" iconRight="arrowRight" onClick={() => navigate("journal")}>
-              Open journal
-            </Button>
-          }
-        />
-        <div className="p-2 sm:p-3">
-          {trades.length > 0 ? (
-            <TradeTable trades={trades} onSelect={() => navigate("journal")} />
-          ) : (
-            <DataUnavailable
-              title={emptyCopy.journal.title}
-              hint={emptyCopy.journal.hint}
-              icon="book"
-              action={
-                <>
-                  <Button size="sm" variant="primary" icon="download" onClick={() => navigate("journal")}>
-                    Import trades
-                  </Button>
-                  <Button size="sm" variant="subtle" icon="plus" onClick={() => navigate("journal")}>
-                    New journal entry
-                  </Button>
-                </>
-              }
-            />
-          )}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-ink">Recent activity</h2>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {activityGroups.map((group) => {
+            const journalCount = group.id === "journal" ? journal.length : 0;
+            const analysisCount = group.id === "analyses" ? journal.filter((e) => e.source === "ai-analysis").length : 0;
+            const count = group.id === "journal" ? journalCount : group.id === "analyses" ? analysisCount : trades.length;
+            return (
+              <Panel key={group.id} className="p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <Icon name={group.icon} size={15} className="text-muted" />
+                  <h3 className="text-sm font-semibold text-ink">{group.label}</h3>
+                </div>
+                {count === 0 ? (
+                  <p className="text-[12px] text-muted">{emptyCopy.activity.hint}</p>
+                ) : group.id === "journal" ? (
+                  <ul className="space-y-2">
+                    {journal.slice(0, 4).map((entry) => (
+                      <li key={entry.id} className="truncate text-[12.5px] text-ink2">
+                        {entry.title}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[12px] text-muted">{emptyCopy.activity.hint}</p>
+                )}
+              </Panel>
+            );
+          })}
         </div>
-      </Panel>
+      </section>
+
+      <section>
+        <Panel>
+          <PanelHeader title="System status" subtitle="Verified connections only" icon="cpu" />
+          <ul className="divide-y divide-line">
+            {services.map((service) => (
+              <li key={service.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3.5 sm:px-5">
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold text-ink">{service.label}</p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-ink2">{service.detail}</p>
+                </div>
+                <ConnectionPill
+                  state={service.state === "not_configured" ? "disconnected" : service.state}
+                  label={service.id === "ai" ? aiStatusLabel : statusLabel(service.state)}
+                />
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      </section>
     </PageShell>
   );
 }
