@@ -12,7 +12,7 @@
 export const DEV_AUTH_NOTICE =
   "Development credential module — authorization must be enforced server-side in production.";
 
-const DEV_PASSWORD = "HOMIES";
+const DEV_PASSWORD = "CLICHE";
 
 export function verifyDevelopmentCredential(input: string): boolean {
   return input.trim().toLowerCase() === DEV_PASSWORD.toLowerCase();

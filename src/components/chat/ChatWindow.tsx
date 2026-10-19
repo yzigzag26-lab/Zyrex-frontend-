@@ -150,11 +150,7 @@ export function ChatWindow() {
         ) : (
           <div className="mx-auto flex h-full min-h-[280px] w-full max-w-3xl flex-col items-center justify-center text-center">
             <HermesLogo size={64} />
-            <h2 className="mt-5 text-2xl font-semibold tracking-tight text-ink">HERMES AI</h2>
-            <p className="mt-2 max-w-md text-sm text-ink2">
-              Private trading intelligence. Ask about structure, risk, or discipline — answers stream from the
-              connected AI service.
-            </p>
+            <h2 className="mt-5 text-2xl font-semibold tracking-tight text-ink">WELCOME LINUXXBOSS 😎</h2>
           </div>
         )}
       </div>
