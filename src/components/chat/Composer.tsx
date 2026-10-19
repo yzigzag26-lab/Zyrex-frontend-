@@ -3,7 +3,6 @@ import { useZyrex } from "../../store/ZyrexProvider";
 import { cn } from "../../utils/cn";
 import { Icon } from "../ui/Icons";
 import type { ChatAttachmentMeta } from "../../types";
-import { product } from "../../data/appConfig";
 
 const MAX_IMAGE = 8 * 1024 * 1024;
 const MAX_DOC = 8 * 1024 * 1024;
@@ -275,7 +274,6 @@ export function Composer() {
         />
 
         {error && <p className="mt-2 text-center text-[11px] text-neg">{error}</p>}
-        <p className="mt-2 px-2 text-center text-[11px] leading-relaxed text-muted">{product.disclaimer}</p>
       </div>
     </div>
   );
