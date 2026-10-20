@@ -1,5 +1,31 @@
 @import "tailwindcss";
 
+/* Register the design tokens below as Tailwind colors so utilities like
+   bg-blue / text-ink / border-line actually generate. `inline` is used
+   because every value references a runtime --z-/--h- variable that is
+   redefined under html.light — utilities then resolve through those
+   variables and track the active theme. Without this block the tokens
+   in plain :root are inert and e.g. bg-blue produces no CSS at all. */
+@theme inline {
+  --color-bg: var(--z-bg);
+  --color-elev: var(--z-bg-elev);
+  --color-surface: var(--z-surface);
+  --color-surface2: var(--z-surface-2);
+  --color-surface3: var(--z-surface-3);
+  --color-line: var(--z-line);
+  --color-linestrong: var(--z-line-strong);
+  --color-ink: var(--z-ink);
+  --color-ink2: var(--z-ink-2);
+  --color-muted: var(--z-muted);
+  --color-accent: var(--z-accent);
+  --color-accentink: var(--z-accent-ink);
+  --color-gold: var(--h-gold);
+  --color-blue: var(--h-blue);
+  --color-pos: var(--z-pos);
+  --color-neg: var(--z-neg);
+  --color-warn: var(--z-warn);
+}
+
 /* ==========================================================================
    HERMES AI design tokens
    Premium fintech × advanced AI. Gold is reserved for branding.
@@ -39,24 +65,6 @@
   --z-warn: #e7b549;
   --z-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 12px 32px -20px rgba(0, 0, 0, 0.55);
   --radius: 12px;
-
-  --color-bg: var(--z-bg);
-  --color-elev: var(--z-bg-elev);
-  --color-surface: var(--z-surface);
-  --color-surface2: var(--z-surface-2);
-  --color-surface3: var(--z-surface-3);
-  --color-line: var(--z-line);
-  --color-linestrong: var(--z-line-strong);
-  --color-ink: var(--z-ink);
-  --color-ink2: var(--z-ink-2);
-  --color-muted: var(--z-muted);
-  --color-accent: var(--z-accent);
-  --color-accentink: var(--z-accent-ink);
-  --color-gold: var(--h-gold);
-  --color-blue: var(--h-blue);
-  --color-pos: var(--z-pos);
-  --color-neg: var(--z-neg);
-  --color-warn: var(--z-warn);
 }
 
 html.light {
