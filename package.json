@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/zyrex-websocket.test.mjs"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

@@ -1,11 +1,15 @@
+import { useState } from "react";
 import { aiModes, emptyCopy } from "../../data/appConfig";
 import { useZyrex } from "../../store/ZyrexProvider";
+import type { Conversation } from "../../types";
 import { cn } from "../../utils/cn";
 import { Icon } from "../ui/Icons";
+import { DeleteConversationDialog } from "./DeleteConversationDialog";
 
 /** Conversation history — empty until the user starts a session. */
 export function ChatHistory() {
-  const { conversations, activeConversationId, selectConversation, deleteConversation, startNewConversation } =
+  const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
+  const { conversations, activeConversationId, selectConversation, startNewConversation } =
     useZyrex();
 
   return (
@@ -62,7 +66,7 @@ export function ChatHistory() {
                   type="button"
                   aria-label={`Remove ${conversation.title}`}
                   title="Remove conversation"
-                  onClick={() => deleteConversation(conversation.id)}
+                  onClick={() => setPendingDelete(conversation)}
                   className="absolute top-1/2 right-1.5 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-muted opacity-0 transition-all hover:bg-neg/10 hover:text-neg focus-visible:opacity-100 group-hover/item:opacity-100"
                 >
                   <Icon name="trash" size={13} />
@@ -72,6 +76,11 @@ export function ChatHistory() {
           })}
         </ul>
       )}
+
+      <DeleteConversationDialog
+        conversation={pendingDelete}
+        onClose={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

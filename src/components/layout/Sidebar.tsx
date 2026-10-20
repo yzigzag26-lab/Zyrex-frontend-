@@ -1,17 +1,20 @@
+import { useState } from "react";
 import { useAuth } from "../../auth/AuthProvider";
 import { navItems, product } from "../../data/appConfig";
 import { useZyrex } from "../../store/ZyrexProvider";
+import type { Conversation } from "../../types";
 import { cn } from "../../utils/cn";
 import { HermesLogo } from "../brand/HermesLogo";
 import { Icon, type IconName } from "../ui/Icons";
 import { Popover } from "../ui/Popover";
+import { DeleteConversationDialog } from "./DeleteConversationDialog";
 
 export function Sidebar() {
+  const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
   const {
     conversations,
     activeConversationId,
     selectConversation,
-    deleteConversation,
     startNewConversation,
     page,
     navigate,
@@ -121,7 +124,7 @@ export function Sidebar() {
                 active={conversation.id === activeConversationId}
                 pinned
                 onSelect={() => selectConversation(conversation.id)}
-                onDelete={() => deleteConversation(conversation.id)}
+                onDelete={() => setPendingDelete(conversation)}
               />
             ))}
             <p className="mt-2 px-2 pb-1 text-[10px] font-semibold tracking-wider text-muted uppercase">Chats</p>
@@ -134,7 +137,7 @@ export function Sidebar() {
                   title={conversation.title}
                   active={conversation.id === activeConversationId}
                   onSelect={() => selectConversation(conversation.id)}
-                  onDelete={() => deleteConversation(conversation.id)}
+                  onDelete={() => setPendingDelete(conversation)}
                 />
               ))
             )}
@@ -198,6 +201,11 @@ export function Sidebar() {
           )}
         </Popover>
       </div>
+
+      <DeleteConversationDialog
+        conversation={pendingDelete}
+        onClose={() => setPendingDelete(null)}
+      />
     </aside>
   );
 

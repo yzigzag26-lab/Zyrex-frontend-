@@ -1,7 +1,21 @@
 /**
- * ZYREX Python backend transport. Submit opens a WebSocket to the Render
- * stream, forwards every token so the chat can append to the last assistant
- * message, and stops when the payload matches "[DONE]".
+ * ZYREX backend transport — the ONLY AI transport in this app.
+ *
+ * Sending a message opens a WebSocket to the ZYREX Python backend
+ * (Agno + Groq server-side, with the custom CoinAPI / GeckoTerminal
+ * market-data tools and tool_choice="auto"), sends one JSON payload
+ * `{ prompt, mode, history }`, then appends streamed text chunks to the
+ * assistant message until the backend sends the "[DONE]" marker.
+ * Backend errors arrive as a JSON frame before "[DONE]".
+ *
+ * There are deliberately NO direct model-provider calls here — no Groq
+ * SDK, no provider API keys, no built-in browsing/code-execution tools.
+ * Model and tool selection happen entirely on the backend.
+ *
+ * The browser attaches the page's Origin header to the WebSocket
+ * handshake automatically; it cannot be set or overridden from
+ * JavaScript. The backend must therefore allowlist the deployed
+ * frontend origin (e.g. https://zyrex.wasmer.app).
  */
 import type {
   AnalysisRequest,
@@ -11,12 +25,22 @@ import type {
   StructuredOption,
 } from "../types";
 
-// Deliberately independent of legacy HTTP environment variables in deployments.
-export const aiAnswerUrl = "wss://zyrex-mpya.onrender.com";
-export const aiHealthUrl = aiAnswerUrl;
+/**
+ * ZYREX backend endpoints. Hardcoded (not env-driven) so a stale
+ * deployment variable can never silently repoint the chat at a
+ * different — e.g. direct-provider — endpoint.
+ */
+export const ZYREX_WS_URL = "wss://zyrex-mpya.onrender.com";
+export const ZYREX_HEALTH_URL = "https://zyrex-mpya.onrender.com/health";
+
+/** Back-compat aliases for existing imports. */
+export const aiAnswerUrl = ZYREX_WS_URL;
+export const aiHealthUrl = ZYREX_HEALTH_URL;
+
 export const aiBackend = {
-  baseUrl: aiAnswerUrl,
-  healthEndpoint: "",
+  baseUrl: ZYREX_WS_URL,
+  wsUrl: ZYREX_WS_URL,
+  healthUrl: ZYREX_HEALTH_URL,
   timeoutMs: Number(import.meta.env.VITE_AI_TIMEOUT_MS) > 0
     ? Number(import.meta.env.VITE_AI_TIMEOUT_MS)
     : 120_000,
@@ -261,11 +285,24 @@ export function answerToBlocks(answer: string): { title: string; blocks: Respons
 
 export const STREAM_DONE = "[DONE]";
 
+/**
+ * The only failure copy the UI ever shows when the AI service is
+ * unavailable. Transport details — endpoints, origins, raw backend
+ * error payloads — never reach the UI.
+ */
+export const GENERATION_FAILED_MESSAGE = "Couldn't Generate Response";
+
 export interface AnalysisStreamHandlers {
   onOpen?: () => void;
   onToken?: (accumulated: string, chunk: string) => void;
   onDone?: () => void;
   onOptions?: (options: StructuredOption[]) => void;
+  /**
+   * User-friendly activity label ("Thinking…", "Checking live price…")
+   * for moments when the backend is working but no answer text is
+   * arriving — e.g. while it runs a market-data tool call.
+   */
+  onActivity?: (label: string) => void;
   /** Closes the socket without inventing a completed answer. */
   signal?: AbortSignal;
 }
@@ -288,12 +325,148 @@ export function extractStructuredOptions(payload: unknown): StructuredOption[] |
   return options.length > 0 ? options : undefined;
 }
 
+/**
+ * Wire payload for the ZYREX backend — exactly
+ * `{ prompt, mode, history: [{ role: "user" | "assistant", text }] }`.
+ * No model name, no tools, no tool_choice: the backend owns those and
+ * runs with tool_choice="auto" so it can call its market-data tools
+ * (CoinAPI, GeckoTerminal, risk checks…) when the question needs them.
+ */
+export function buildRequestPayload(request: AnalysisRequest): {
+  prompt: string;
+  mode: AnalysisRequest["mode"];
+  history: Array<{ role: "user" | "assistant"; text: string }>;
+} {
+  return {
+    prompt: request.prompt.trim(),
+    mode: request.mode,
+    history: (request.history ?? [])
+      .map((turn) => ({
+        role: turn.role === "user" ? ("user" as const) : ("assistant" as const),
+        text: (turn.text ?? "").trim(),
+      }))
+      .filter((turn) => turn.text.length > 0)
+      .slice(-8),
+  };
+}
+
+/* --------------------------------------------------------- stream frames
+ * The backend primarily streams raw text chunks and terminates with the
+ * "[DONE]" marker — either as its own frame or appended to the final
+ * chunk. Errors arrive as a JSON frame before "[DONE]". The helpers
+ * below also tolerate JSON-wrapped chunks so a framing change on the
+ * backend cannot corrupt the answer: delta fields append, whole-answer
+ * fields are treated as cumulative snapshots (never duplicated), and
+ * control / tool-event frames carrying no answer text are ignored
+ * instead of being stringified into the reply.
+ */
+
+const DELTA_KEYS = ["chunk", "token", "delta", "text", "content"] as const;
+const SNAPSHOT_KEYS = ["answer", "response", "reply", "output", "result"] as const;
+
+/**
+ * Incremental text carried by a JSON frame, if any. Never trimmed —
+ * a chunk can be a single meaningful space.
+ */
+function deltaFromRecord(record: Json): string | undefined {
+  for (const key of DELTA_KEYS) {
+    const value = record[key];
+    if (typeof value === "string") return value;
+    if (isRecord(value)) {
+      const nested = deltaFromRecord(value);
+      if (nested !== undefined) return nested;
+    }
+  }
+  const choices = record.choices;
+  if (Array.isArray(choices) && isRecord(choices[0])) {
+    const first = choices[0];
+    if (isRecord(first.delta)) {
+      const nested = deltaFromRecord(first.delta);
+      if (nested !== undefined) return nested;
+    }
+    if (isRecord(first.message)) {
+      const nested = deltaFromRecord(first.message);
+      if (nested !== undefined) return nested;
+    }
+    if (typeof first.text === "string") return first.text;
+  }
+  return undefined;
+}
+
+/** Whole-answer-so-far text carried by a JSON frame, if any. */
+function snapshotFromRecord(record: Json): string | undefined {
+  for (const key of SNAPSHOT_KEYS) {
+    const value = record[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Whether a JSON frame is a backend error. Always surfaces as the
+ * generic failure notice — the raw backend payload is never shown.
+ */
+function errorFromRecord(record: Json): string | undefined {
+  const flagged =
+    (record.error !== undefined && record.error !== null && record.error !== false) ||
+    record.status === "error" ||
+    record.status === "offline" ||
+    record.type === "error" ||
+    record.ok === false;
+  return flagged ? GENERATION_FAILED_MESSAGE : undefined;
+}
+
+function isDoneRecord(record: Json): boolean {
+  return (
+    record.done === true ||
+    record.type === "done" ||
+    record.event === "done" ||
+    record.status === "done"
+  );
+}
+
+const TOOL_ACTIVITY: Array<[RegExp, string]> = [
+  [/ticker|price/, "Checking live price…"],
+  [/kline|ohlcv|candle/, "Analyzing price charts…"],
+  [/trending/, "Scanning trending markets…"],
+  [/search|pool/, "Searching liquidity pools…"],
+  [/compare/, "Comparing markets…"],
+  [/risk|validate/, "Checking trade risk…"],
+  [/tool_status|diagnos|status/, "Checking market tools…"],
+];
+
+/**
+ * Maps a backend status / tool-call frame to the friendly activity
+ * label shown while waiting ("Thinking…", "Searching market data…").
+ * Returns undefined for frames that carry no activity meaning.
+ */
+function activityFromRecord(record: Json): string | undefined {
+  const toolName =
+    pickString(record, ["tool", "tool_name", "toolName", "function", "name"]) ??
+    (isRecord(record.tool) ? pickString(record.tool, ["name", "tool_name"]) : undefined) ??
+    (isRecord(record.data) ? pickString(record.data, ["tool", "tool_name", "name"]) : undefined);
+  const kind = [record.type, record.event, record.status]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  const haystack = `${toolName ?? ""} ${kind}`.toLowerCase();
+  const meaningful =
+    Boolean(toolName) || /(tool|search|think|progress|analy|fetch|call|working)/.test(kind);
+  if (!meaningful) return undefined;
+  for (const [pattern, label] of TOOL_ACTIVITY) {
+    if (pattern.test(haystack)) return label;
+  }
+  return toolName || /(tool|call|fetch|search)/.test(kind)
+    ? "Searching market data…"
+    : "Thinking…";
+}
+
 export async function requestAnalysis(
   request: AnalysisRequest,
   handlers: AnalysisStreamHandlers = {},
 ): Promise<AnalysisResult> {
-  const prompt = request.prompt.trim();
-  if (!prompt) {
+  const payload = buildRequestPayload(request);
+  if (!payload.prompt) {
     return { status: "offline", reason: "Enter a message before sending." };
   }
 
@@ -302,22 +475,13 @@ export async function requestAnalysis(
     let settled = false;
     let answer = "";
     let options: StructuredOption[] | undefined;
-    const timer = setTimeout(() => {
-      finish({ status: "offline", reason: "The HERMES response timed out before [DONE]. Please try again." });
-    }, aiBackend.timeoutMs);
-
-    if (handlers.signal?.aborted) {
-      finish({ status: "offline", reason: "Generation cancelled." });
-      return;
-    }
-    handlers.signal?.addEventListener("abort", () => {
-      finish({ status: "offline", reason: "Generation cancelled." });
-    });
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
     function finish(result: AnalysisResult) {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (idleTimer !== undefined) clearTimeout(idleTimer);
+      handlers.signal?.removeEventListener("abort", onAbort);
       if (socket) {
         socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
         socket.close();
@@ -325,63 +489,151 @@ export async function requestAnalysis(
       resolve(result);
     }
 
-    function isDoneSentinel(raw: string, payload: unknown): boolean {
-      return raw.trim() === STREAM_DONE || payload === STREAM_DONE;
+    function onAbort() {
+      finish({ status: "offline", reason: "Generation cancelled." });
     }
 
-    try {
-      socket = new WebSocket(aiAnswerUrl);
-      socket.onopen = () => {
-        try {
-          handlers.onOpen?.();
-          socket!.send(JSON.stringify({
-            prompt,
-            mode: request.mode,
-            history: (request.history ?? []).slice(-8).map((turn) => ({
-              role: turn.role === "user" ? "user" : "assistant",
-              text: turn.text ?? "",
-            })),
-          }));
-        } catch {
-          finish({ status: "offline", reason: "Couldn't send the message to HERMES." });
-        }
-      };
-      socket.onmessage = (event: MessageEvent) => {
-        if (settled || typeof event.data !== "string") return;
-        const raw = event.data;
-        const payload = parseJson(raw);
-        // Accept both raw text and a JSON-encoded string sentinel.
-        if (isDoneSentinel(raw, payload)) {
-          handlers.onDone?.();
-          finish(answer.trim()
-            ? { status: "ready", ...answerToBlocks(answer), options }
-            : { status: "offline", reason: "HERMES finished without returning readable content." });
+    // Bounds silence, not total answer length: a Render cold start and
+    // server-side tool calls can precede the first token, and a healthy
+    // stream must not be cut off merely for being long. Re-armed on open
+    // and on every received frame.
+    function armIdleTimer() {
+      if (idleTimer !== undefined) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
+      }, aiBackend.timeoutMs);
+    }
+
+    function appendText(chunk: string) {
+      if (chunk.length === 0) return;
+      answer += chunk;
+      handlers.onToken?.(answer, chunk);
+    }
+
+    function appendSnapshot(fullText: string) {
+      if (fullText === answer) return;
+      if (fullText.startsWith(answer)) {
+        const chunk = fullText.slice(answer.length);
+        answer = fullText;
+        if (chunk.length > 0) handlers.onToken?.(answer, chunk);
+        return;
+      }
+      appendText(fullText);
+    }
+
+    function complete() {
+      handlers.onDone?.();
+      finish(
+        answer.trim()
+          ? { status: "ready", ...answerToBlocks(answer), options }
+          : { status: "offline", reason: GENERATION_FAILED_MESSAGE },
+      );
+    }
+
+    /**
+     * Append text, treating "[DONE]" anywhere in it as the terminator:
+     * the marker may be its own frame or appended to the final chunk.
+     */
+    function handleText(text: string) {
+      const doneAt = text.indexOf(STREAM_DONE);
+      if (doneAt >= 0) {
+        appendText(text.slice(0, doneAt));
+        complete();
+        return;
+      }
+      appendText(text);
+    }
+
+    function handleFrame(raw: string) {
+      if (settled) return;
+      armIdleTimer();
+      const payload = parseJson(raw);
+
+      // JSON-encoded string chunk (including an encoded "[DONE]").
+      if (typeof payload === "string") {
+        handleText(payload);
+        return;
+      }
+
+      if (isRecord(payload)) {
+        const error = errorFromRecord(payload);
+        if (error) {
+          finish({ status: "offline", reason: error });
           return;
         }
-        if (isRecord(payload) && (payload.error || payload.status === "error" || payload.status === "offline")) {
-          finish({ status: "offline", reason: pickString(payload, ["reason", "error", "message", "detail"]) ?? "HERMES could not answer." });
-          return;
+        const nextOptions = extractStructuredOptions(payload);
+        if (nextOptions) {
+          options = nextOptions;
+          handlers.onOptions?.(nextOptions);
         }
-        if (isRecord(payload)) {
-          const nextOptions = extractStructuredOptions(payload);
-          if (nextOptions) {
-            options = nextOptions;
-            handlers.onOptions?.(nextOptions);
+        const delta = deltaFromRecord(payload);
+        if (delta !== undefined) {
+          const doneAt = delta.indexOf(STREAM_DONE);
+          if (doneAt >= 0) {
+            appendText(delta.slice(0, doneAt));
+            complete();
+            return;
+          }
+          appendText(delta);
+        } else {
+          const snapshot = snapshotFromRecord(payload);
+          if (snapshot !== undefined) {
+            appendSnapshot(snapshot);
+          } else {
+            // Frames with no answer text (status / tool-call events) are
+            // never stringified into the reply — they only drive the
+            // "Thinking / searching" activity label.
+            const activity = activityFromRecord(payload);
+            if (activity) handlers.onActivity?.(activity);
           }
         }
-        const chunk = typeof payload === "string" ? payload
-          : isRecord(payload) ? [payload.chunk, payload.token, payload.text, payload.content]
-              .find((value): value is string => typeof value === "string")
-              ?? extractAnswerText(payload, "")
-          : raw;
-        if (chunk.length === 0) return;
-        answer += chunk;
-        handlers.onToken?.(answer, chunk);
+        if (isDoneRecord(payload)) complete();
+        return;
+      }
+
+      // Plain text chunk — the backend's primary framing.
+      handleText(raw);
+    }
+
+    if (handlers.signal?.aborted) {
+      finish({ status: "offline", reason: "Generation cancelled." });
+      return;
+    }
+    handlers.signal?.addEventListener("abort", onAbort);
+    armIdleTimer();
+
+    try {
+      socket = new WebSocket(ZYREX_WS_URL);
+      const activeSocket = socket;
+      activeSocket.onopen = () => {
+        armIdleTimer();
+        try {
+          handlers.onOpen?.();
+          activeSocket.send(JSON.stringify(payload));
+        } catch {
+          finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
+        }
       };
-      socket.onerror = () => finish({ status: "offline", reason: `Couldn't connect to ${aiAnswerUrl}. Check backend availability and allowed WebSocket origins.` });
-      socket.onclose = () => finish({ status: "offline", reason: "HERMES disconnected before completing the response ([DONE]). Please try again." });
+      activeSocket.onmessage = (event: MessageEvent) => {
+        if (settled) return;
+        const data: unknown = event.data;
+        if (typeof data === "string") {
+          handleFrame(data);
+        } else if (typeof Blob !== "undefined" && data instanceof Blob) {
+          void data
+            .text()
+            .then((text) => handleFrame(text))
+            .catch(() => undefined);
+        } else if (data instanceof ArrayBuffer) {
+          handleFrame(new TextDecoder().decode(data));
+        }
+      };
+      activeSocket.onerror = () =>
+        finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
+      activeSocket.onclose = () =>
+        finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
     } catch {
-      finish({ status: "offline", reason: `Couldn't open a WebSocket connection to ${aiAnswerUrl}.` });
+      finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
     }
   });
 }
@@ -396,12 +648,31 @@ export interface BackendHealth {
   status: number | null;
 }
 
-export async function checkAiBackendHealth(): Promise<BackendHealth> {
-  const startedAt = Date.now();
+async function probeHealthEndpoint(
+  timeoutMs: number,
+): Promise<{ ok: boolean; status: number | null }> {
+  if (typeof fetch !== "function") return { ok: false, status: null };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(ZYREX_HEALTH_URL, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    return { ok: response.ok, status: response.status };
+  } catch {
+    return { ok: false, status: null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function probeWebSocketHandshake(timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
     let socket: WebSocket | undefined;
     let settled = false;
-    const timer = setTimeout(() => finish(false), aiBackend.timeoutMs);
+    const timer = setTimeout(() => finish(false), timeoutMs);
     function finish(connected: boolean) {
       if (settled) return;
       settled = true;
@@ -410,24 +681,54 @@ export async function checkAiBackendHealth(): Promise<BackendHealth> {
         socket.onopen = socket.onerror = socket.onclose = null;
         socket.close();
       }
-      resolve({
-        state: connected ? "connected" : "disconnected",
-        label: connected ? "Connected" : "Offline",
-        detail: connected
-          ? `WebSocket handshake succeeded in ${Date.now() - startedAt}ms. Reachability only — AI availability is checked when sending a message.`
-          : `Couldn't open a WebSocket connection to ${aiAnswerUrl}.`,
-        latencyMs: connected ? Date.now() - startedAt : null,
-        status: null,
-      });
+      resolve(connected);
     }
     try {
-      socket = new WebSocket(aiAnswerUrl);
+      socket = new WebSocket(ZYREX_WS_URL);
       socket.onopen = () => finish(true);
       socket.onerror = socket.onclose = () => finish(false);
     } catch {
       finish(false);
     }
   });
+}
+
+export async function checkAiBackendHealth(): Promise<BackendHealth> {
+  const startedAt = Date.now();
+  const elapsed = () => Date.now() - startedAt;
+
+  const http = await probeHealthEndpoint(aiBackend.timeoutMs);
+  if (http.ok) {
+    return {
+      state: "connected",
+      label: "Connected",
+      detail: `Connected in ${elapsed()}ms.`,
+      latencyMs: elapsed(),
+      status: http.status,
+    };
+  }
+
+  // /health can be unreachable from a browser (e.g. no CORS headers on the
+  // HTTP route) while the WebSocket itself is fine — WebSockets are not
+  // subject to CORS, only to the backend's Origin allowlist.
+  const wsOk = await probeWebSocketHandshake(aiBackend.timeoutMs);
+  if (wsOk) {
+    return {
+      state: "connected",
+      label: "Connected",
+      detail: `Connected in ${elapsed()}ms.`,
+      latencyMs: elapsed(),
+      status: http.status,
+    };
+  }
+
+  return {
+    state: "disconnected",
+    label: "Offline",
+    detail: "Service unavailable right now. It may still be starting up — try again in a moment.",
+    latencyMs: null,
+    status: http.status,
+  };
 }
 
 export function healthLabel(state: ConnectionState): string {
