@@ -33,7 +33,6 @@ export function SettingsPage() {
     aiStatus,
     aiStatusDetail,
     aiStatusLabel,
-    aiBackendUrl,
     recheckAiConnection,
     profile,
     updateProfile,
@@ -371,7 +370,6 @@ export function SettingsPage() {
           <div>
             <p className="text-[13px] font-semibold text-ink">HERMES AI backend</p>
             <p className="mt-1 text-[12px] text-ink2">{aiStatusDetail}</p>
-            <p className="mt-1 z-num text-[11px] text-muted">{aiBackendUrl}</p>
           </div>
           <div className="flex items-center gap-2">
             <ConnectionPill state={aiStatus} label={aiStatusLabel} />

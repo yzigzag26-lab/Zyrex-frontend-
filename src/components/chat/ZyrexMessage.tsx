@@ -12,7 +12,7 @@ export function ZyrexMessage({
   message: ChatMessage;
   streaming?: boolean;
 }) {
-  const { sendMessage, isStreaming } = useZyrex();
+  const { sendMessage, isStreaming, generationActivity } = useZyrex();
   const text =
     message.text ||
     (message.blocks && message.blocks.length > 0
@@ -41,14 +41,23 @@ export function ZyrexMessage({
           <p className="text-sm text-muted">Generation cancelled.</p>
         ) : (
           <div className="ai-reply text-[15px] leading-relaxed text-ink">
-            {text ? <Markdown>{text}</Markdown> : streaming ? <span className="text-muted">Thinking…</span> : null}
+            {text ? (
+              <Markdown>{text}</Markdown>
+            ) : streaming ? (
+              <span className="inline-flex items-center gap-2 text-muted" aria-live="polite">
+                <span className="hermes-stream-dot" />
+                <span className="animate-pulse">{generationActivity ?? "Thinking…"}</span>
+              </span>
+            ) : null}
           </div>
         )}
 
-        {streaming && (
+        {streaming && text && (
           <span className="mt-2 inline-flex items-center gap-2 text-[12px] text-blue" aria-live="polite">
             <span className="hermes-stream-dot" />
-            <span>Generating</span>
+            <span className={generationActivity ? "animate-pulse" : undefined}>
+              {generationActivity ?? "Generating…"}
+            </span>
           </span>
         )}
 

@@ -285,11 +285,24 @@ export function answerToBlocks(answer: string): { title: string; blocks: Respons
 
 export const STREAM_DONE = "[DONE]";
 
+/**
+ * The only failure copy the UI ever shows when the AI service is
+ * unavailable. Transport details — endpoints, origins, raw backend
+ * error payloads — never reach the UI.
+ */
+export const GENERATION_FAILED_MESSAGE = "Couldn't Generate Response";
+
 export interface AnalysisStreamHandlers {
   onOpen?: () => void;
   onToken?: (accumulated: string, chunk: string) => void;
   onDone?: () => void;
   onOptions?: (options: StructuredOption[]) => void;
+  /**
+   * User-friendly activity label ("Thinking…", "Checking live price…")
+   * for moments when the backend is working but no answer text is
+   * arriving — e.g. while it runs a market-data tool call.
+   */
+  onActivity?: (label: string) => void;
   /** Closes the socket without inventing a completed answer. */
   signal?: AbortSignal;
 }
@@ -389,7 +402,10 @@ function snapshotFromRecord(record: Json): string | undefined {
   return undefined;
 }
 
-/** Backend error message carried by a JSON frame, if it is one. */
+/**
+ * Whether a JSON frame is a backend error. Always surfaces as the
+ * generic failure notice — the raw backend payload is never shown.
+ */
 function errorFromRecord(record: Json): string | undefined {
   const flagged =
     (record.error !== undefined && record.error !== null && record.error !== false) ||
@@ -397,13 +413,7 @@ function errorFromRecord(record: Json): string | undefined {
     record.status === "offline" ||
     record.type === "error" ||
     record.ok === false;
-  if (!flagged) return undefined;
-  if (typeof record.error === "string" && record.error.trim()) return record.error.trim();
-  if (isRecord(record.error)) {
-    const nested = pickString(record.error, ["message", "detail", "reason", "error"]);
-    if (nested) return nested;
-  }
-  return pickString(record, ["reason", "message", "detail"]) ?? "HERMES could not answer.";
+  return flagged ? GENERATION_FAILED_MESSAGE : undefined;
 }
 
 function isDoneRecord(record: Json): boolean {
@@ -413,6 +423,42 @@ function isDoneRecord(record: Json): boolean {
     record.event === "done" ||
     record.status === "done"
   );
+}
+
+const TOOL_ACTIVITY: Array<[RegExp, string]> = [
+  [/ticker|price/, "Checking live price…"],
+  [/kline|ohlcv|candle/, "Analyzing price charts…"],
+  [/trending/, "Scanning trending markets…"],
+  [/search|pool/, "Searching liquidity pools…"],
+  [/compare/, "Comparing markets…"],
+  [/risk|validate/, "Checking trade risk…"],
+  [/tool_status|diagnos|status/, "Checking market tools…"],
+];
+
+/**
+ * Maps a backend status / tool-call frame to the friendly activity
+ * label shown while waiting ("Thinking…", "Searching market data…").
+ * Returns undefined for frames that carry no activity meaning.
+ */
+function activityFromRecord(record: Json): string | undefined {
+  const toolName =
+    pickString(record, ["tool", "tool_name", "toolName", "function", "name"]) ??
+    (isRecord(record.tool) ? pickString(record.tool, ["name", "tool_name"]) : undefined) ??
+    (isRecord(record.data) ? pickString(record.data, ["tool", "tool_name", "name"]) : undefined);
+  const kind = [record.type, record.event, record.status]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  const haystack = `${toolName ?? ""} ${kind}`.toLowerCase();
+  const meaningful =
+    Boolean(toolName) || /(tool|search|think|progress|analy|fetch|call|working)/.test(kind);
+  if (!meaningful) return undefined;
+  for (const [pattern, label] of TOOL_ACTIVITY) {
+    if (pattern.test(haystack)) return label;
+  }
+  return toolName || /(tool|call|fetch|search)/.test(kind)
+    ? "Searching market data…"
+    : "Thinking…";
 }
 
 export async function requestAnalysis(
@@ -454,10 +500,7 @@ export async function requestAnalysis(
     function armIdleTimer() {
       if (idleTimer !== undefined) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
-        finish({
-          status: "offline",
-          reason: "The HERMES response timed out before [DONE]. Please try again.",
-        });
+        finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
       }, aiBackend.timeoutMs);
     }
 
@@ -483,7 +526,7 @@ export async function requestAnalysis(
       finish(
         answer.trim()
           ? { status: "ready", ...answerToBlocks(answer), options }
-          : { status: "offline", reason: "HERMES finished without returning readable content." },
+          : { status: "offline", reason: GENERATION_FAILED_MESSAGE },
       );
     }
 
@@ -534,9 +577,15 @@ export async function requestAnalysis(
           appendText(delta);
         } else {
           const snapshot = snapshotFromRecord(payload);
-          if (snapshot !== undefined) appendSnapshot(snapshot);
-          // Frames with no answer text (status / tool-call events) count
-          // as liveness only — never stringified into the reply.
+          if (snapshot !== undefined) {
+            appendSnapshot(snapshot);
+          } else {
+            // Frames with no answer text (status / tool-call events) are
+            // never stringified into the reply — they only drive the
+            // "Thinking / searching" activity label.
+            const activity = activityFromRecord(payload);
+            if (activity) handlers.onActivity?.(activity);
+          }
         }
         if (isDoneRecord(payload)) complete();
         return;
@@ -562,7 +611,7 @@ export async function requestAnalysis(
           handlers.onOpen?.();
           activeSocket.send(JSON.stringify(payload));
         } catch {
-          finish({ status: "offline", reason: "Couldn't send the message to HERMES." });
+          finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
         }
       };
       activeSocket.onmessage = (event: MessageEvent) => {
@@ -580,17 +629,11 @@ export async function requestAnalysis(
         }
       };
       activeSocket.onerror = () =>
-        finish({
-          status: "offline",
-          reason: `Couldn't connect to ${ZYREX_WS_URL}. Check backend availability and allowed WebSocket origins.`,
-        });
+        finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
       activeSocket.onclose = () =>
-        finish({
-          status: "offline",
-          reason: "HERMES disconnected before completing the response ([DONE]). Please try again.",
-        });
+        finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
     } catch {
-      finish({ status: "offline", reason: `Couldn't open a WebSocket connection to ${ZYREX_WS_URL}.` });
+      finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
     }
   });
 }
@@ -659,7 +702,7 @@ export async function checkAiBackendHealth(): Promise<BackendHealth> {
     return {
       state: "connected",
       label: "Connected",
-      detail: `Health check passed at ${ZYREX_HEALTH_URL} in ${elapsed()}ms.`,
+      detail: `Connected in ${elapsed()}ms.`,
       latencyMs: elapsed(),
       status: http.status,
     };
@@ -673,7 +716,7 @@ export async function checkAiBackendHealth(): Promise<BackendHealth> {
     return {
       state: "connected",
       label: "Connected",
-      detail: `WebSocket handshake succeeded in ${elapsed()}ms. Reachability only — AI availability is checked when sending a message.`,
+      detail: `Connected in ${elapsed()}ms.`,
       latencyMs: elapsed(),
       status: http.status,
     };
@@ -682,7 +725,7 @@ export async function checkAiBackendHealth(): Promise<BackendHealth> {
   return {
     state: "disconnected",
     label: "Offline",
-    detail: `Couldn't reach the ZYREX backend at ${ZYREX_WS_URL}. It may still be starting up — try again in a moment.`,
+    detail: "Service unavailable right now. It may still be starting up — try again in a moment.",
     latencyMs: null,
     status: http.status,
   };

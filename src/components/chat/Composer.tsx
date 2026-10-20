@@ -232,7 +232,7 @@ export function Composer() {
                 type="button"
                 onClick={stopGeneration}
                 aria-label="Stop generating"
-                className="mb-0.5 grid size-10 shrink-0 place-items-center rounded-full bg-ink text-bg hover:opacity-90"
+                className="mb-0.5 grid size-10 shrink-0 place-items-center rounded-full bg-blue text-white transition-opacity hover:opacity-90"
               >
                 <Icon name="stop" size={14} />
               </button>
@@ -242,7 +242,7 @@ export function Composer() {
                 onClick={submit}
                 disabled={!canSend}
                 aria-label="Send message"
-                className="mb-0.5 grid size-10 shrink-0 place-items-center rounded-full bg-ink text-bg disabled:cursor-not-allowed disabled:opacity-30"
+                className="mb-0.5 grid size-10 shrink-0 place-items-center rounded-full bg-blue text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <Icon name="arrowUp" size={16} />
               </button>

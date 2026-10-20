@@ -10,7 +10,7 @@ import {
 } from "react";
 import { aiModes, defaultProfile, defaultSettings } from "../data/appConfig";
 import { requestAnalysis, trades as datasetTrades } from "../data/dataset";
-import { aiBackend, checkAiBackendHealth, healthLabel } from "../lib/zyrexApi";
+import { GENERATION_FAILED_MESSAGE, checkAiBackendHealth, healthLabel } from "../lib/zyrexApi";
 import { persistenceCopy, readCache, writeCache } from "../persistence/localCache";
 import type {
   AdminProfile,
@@ -64,7 +64,6 @@ interface ZyrexContextValue {
   aiStatus: ConnectionState;
   aiStatusDetail: string;
   aiStatusLabel: string;
-  aiBackendUrl: string;
   recheckAiConnection: () => void;
 
   conversations: Conversation[];
@@ -82,6 +81,8 @@ interface ZyrexContextValue {
   phase: ChatPhase;
   isStreaming: boolean;
   generationState: GenerationState;
+  /** Friendly activity label while generating ("Thinking…", "Searching market data…"), or null. */
+  generationActivity: string | null;
   sendMessage: (text: string, attachments?: ChatAttachmentMeta[]) => void;
   stopGeneration: () => void;
   regenerate: () => void;
@@ -145,10 +146,52 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const [aiStatus, setAiStatus] = useState<ConnectionState>("connecting");
-  const [aiStatusDetail, setAiStatusDetail] = useState<string>(
-    `Probing ${aiBackend.healthUrl}…`,
+  const [generationActivity, setGenerationActivity] = useState<string | null>(null);
+  const activityTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const clearActivityTimers = useCallback(() => {
+    activityTimersRef.current.forEach((timer) => clearTimeout(timer));
+    activityTimersRef.current = [];
+  }, []);
+
+  const scheduleActivity = useCallback(
+    (stages: Array<readonly [number, string]>) => {
+      clearActivityTimers();
+      activityTimersRef.current = stages.map(([delay, label]) =>
+        setTimeout(() => setGenerationActivity(label), delay),
+      );
+    },
+    [clearActivityTimers],
   );
+
+  /** ChatGPT-style staged activity while waiting for the first token. */
+  const showWaitingActivity = useCallback(() => {
+    setGenerationActivity("Thinking…");
+    scheduleActivity([
+      [4_000, "Searching market data…"],
+      [12_000, "Analyzing results…"],
+      [30_000, "Still working…"],
+    ]);
+  }, [scheduleActivity]);
+
+  /** After a token, stay quiet — but if the stream pauses (e.g. tool calls), show activity again. */
+  const armStreamSilenceActivity = useCallback(() => {
+    setGenerationActivity(null);
+    scheduleActivity([
+      [3_000, "Thinking…"],
+      [9_000, "Searching market data…"],
+      [20_000, "Analyzing results…"],
+      [40_000, "Still working…"],
+    ]);
+  }, [scheduleActivity]);
+
+  const endActivity = useCallback(() => {
+    clearActivityTimers();
+    setGenerationActivity(null);
+  }, [clearActivityTimers]);
+
+  const [aiStatus, setAiStatus] = useState<ConnectionState>("connecting");
+  const [aiStatusDetail, setAiStatusDetail] = useState<string>("Checking connection…");
 
   const [settings, setSettings] = useLocalStorage<AppSettings>("hermes.settings", defaultSettings);
   const [theme, setThemeState] = useLocalStorage<Theme>("hermes.theme", defaultSettings.appearance.theme);
@@ -353,7 +396,7 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
 
   const recheckAiConnection = useCallback(() => {
     setAiStatus("connecting");
-    setAiStatusDetail(`Probing ${aiBackend.healthUrl}…`);
+    setAiStatusDetail("Checking connection…");
     void checkAiBackendHealth().then((health) => {
       setAiStatus(health.state);
       setAiStatusDetail(health.detail);
@@ -367,10 +410,11 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
   const stopGeneration = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
+    endActivity();
     setIsStreaming(false);
     setPhase("idle");
     setGenerationState("cancelled");
-  }, []);
+  }, [endActivity]);
 
   const sendMessage = useCallback(
     (rawText: string, attachments: ChatAttachmentMeta[] = []) => {
@@ -383,6 +427,7 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
 
       setIsStreaming(true);
       setGenerationState("processing");
+      showWaitingActivity();
 
       const attachmentNote =
         attachments.length > 0
@@ -477,9 +522,15 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
           onOpen: () => {
             setPhase("thinking");
             setGenerationState("processing");
+            showWaitingActivity();
+          },
+          onActivity: (label) => {
+            setGenerationActivity(label);
+            scheduleActivity([[10_000, "Still working…"]]);
           },
           onToken: (accumulated) => {
             setGenerationState("streaming");
+            armStreamSilenceActivity();
             updateLastAssistant((message) => ({
               ...message,
               kind: "analysis",
@@ -491,6 +542,7 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
             updateLastAssistant((message) => ({ ...message, options }));
           },
           onDone: () => {
+            endActivity();
             setIsStreaming(false);
           },
         },
@@ -536,23 +588,32 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
         })
         .catch(() => {
           setAiStatus("disconnected");
-          setAiStatusDetail(
-            `Couldn't reach ${aiBackend.baseUrl}. It may be offline or blocking cross-origin requests.`,
-          );
+          setAiStatusDetail("Service unavailable right now. Please try again.");
           setGenerationState("error");
           updateLastAssistant((message) => ({
             ...message,
             kind: "offline",
-            title: "I couldn't connect to HERMES right now. Please try again.",
+            title: GENERATION_FAILED_MESSAGE,
           }));
         })
         .finally(() => {
+          endActivity();
           setIsStreaming(false);
           setPhase("idle");
           if (abortRef.current === controller) abortRef.current = null;
         });
     },
-    [activeId, activeConversation, modeId, patchConversation, isStreaming],
+    [
+      activeId,
+      activeConversation,
+      modeId,
+      patchConversation,
+      isStreaming,
+      showWaitingActivity,
+      armStreamSilenceActivity,
+      scheduleActivity,
+      endActivity,
+    ],
   );
 
   const regenerate = useCallback(() => {
@@ -629,7 +690,6 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
     aiStatus,
     aiStatusDetail,
     aiStatusLabel: healthLabel(aiStatus),
-    aiBackendUrl: aiBackend.baseUrl,
     recheckAiConnection,
     conversations,
     activeConversationId: activeId,
@@ -645,6 +705,7 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
     phase,
     isStreaming,
     generationState,
+    generationActivity,
     sendMessage,
     stopGeneration,
     regenerate,

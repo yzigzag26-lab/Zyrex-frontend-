@@ -33,6 +33,9 @@ test('ships only the ZYREX backend endpoints — no legacy HTTP, no direct provi
   assert.equal(bundled.includes('api.openai.com'), false);
   assert.match(bundled, /wss:\/\/zyrex-mpya\.onrender\.com/);
   assert.match(bundled, /https:\/\/zyrex-mpya\.onrender\.com\/health/);
+  // Failure copy shown to users must never expose transport details.
+  assert.equal(bundled.includes('allowed WebSocket origins'), false);
+  assert.match(bundled, /Couldn't Generate Response/);
 });
 
 test('secure endpoint, JSON payload, whitespace, and DONE completion', async () => {
@@ -103,23 +106,23 @@ test('DONE appended to the final chunk completes the answer and is stripped', as
   assert.equal(socket.closed, true);
 });
 
-test('error JSON sent before DONE surfaces the backend message', async () => {
+test('error JSON sent before DONE shows only the generic failure notice', async () => {
   const result = api.requestAnalysis(request);
   const socket = MockSocket.instances.at(-1);
   socket.chunk('{"error":"Tool choice is none, but model called a tool"}');
   socket.chunk('[DONE]');
   const answer = await result;
   assert.equal(answer.status, 'offline');
-  assert.equal(answer.reason, 'Tool choice is none, but model called a tool');
+  assert.equal(answer.reason, "Couldn't Generate Response");
 });
 
-test('nested error objects surface their message', async () => {
+test('nested error objects also show only the generic failure notice', async () => {
   const result = api.requestAnalysis(request);
   const socket = MockSocket.instances.at(-1);
-  socket.chunk('{"error":{"message":"CoinAPI unavailable"}}');
+  socket.chunk('{"error":{"message":"internal backend detail"}}');
   const answer = await result;
   assert.equal(answer.status, 'offline');
-  assert.equal(answer.reason, 'CoinAPI unavailable');
+  assert.equal(answer.reason, "Couldn't Generate Response");
 });
 
 test('control and tool-event frames are ignored, never stringified into the reply', async () => {
@@ -133,6 +136,20 @@ test('control and tool-event frames are ignored, never stringified into the repl
   const answer = await result;
   assert.equal(answer.status, 'ready');
   assert.equal(answer.blocks[0].text, 'BTC/USDT: 67000');
+});
+
+test('tool-event frames drive the friendly activity label', async () => {
+  const activity = [];
+  const result = api.requestAnalysis(request, { onActivity: (label) => activity.push(label) });
+  const socket = MockSocket.instances.at(-1);
+  socket.chunk('{"type":"tool_call","name":"get_ticker_price"}');
+  socket.chunk('{"type":"tool_call","tool":"search_pools"}');
+  socket.chunk('{"status":"streaming"}');
+  socket.chunk('Done.');
+  socket.chunk('[DONE]');
+  const answer = await result;
+  assert.equal(answer.status, 'ready');
+  assert.deepEqual(activity, ['Checking live price…', 'Searching liquidity pools…']);
 });
 
 test('cumulative JSON snapshots are applied once, not duplicated per frame', async () => {

@@ -17,7 +17,7 @@ type GlowState = "idle" | "typing" | "focused" | "connecting" | "thinking" | "di
  * reports the connection status rather than inventing an answer.
  */
 export function PromptInput({ autoFocus = false }: { autoFocus?: boolean }) {
-  const { sendMessage, phase, mode } = useZyrex();
+  const { sendMessage, stopGeneration, phase, mode } = useZyrex();
   const [value, setValue] = useState("");
   const [focused, setFocused] = useState(false);
   const [listening, setListening] = useState(false);
@@ -146,25 +146,33 @@ export function PromptInput({ autoFocus = false }: { autoFocus?: boolean }) {
               >
                 <Icon name="mic" size={17} className={listening ? "z-core-thinking" : undefined} />
               </button>
-              <button
-                type="button"
-                onClick={submit}
-                disabled={!hasText || busy}
-                aria-label="Send message to ZYREX"
-                title="Send"
-                className={cn(
-                  "ml-0.5 grid size-10 place-items-center rounded-2xl transition-all duration-300 active:scale-95",
-                  hasText && !busy
-                    ? "bg-white text-black shadow-sm hover:bg-neutral-200"
-                    : "cursor-not-allowed bg-surface3 text-muted",
-                )}
-              >
-                <Icon
-                  name={busy ? "refresh" : "arrowUp"}
-                  size={18}
-                  className={busy ? "z-core-orbit" : undefined}
-                />
-              </button>
+              {busy ? (
+                <button
+                  type="button"
+                  onClick={stopGeneration}
+                  aria-label="Stop generating"
+                  title="Stop"
+                  className="ml-0.5 grid size-10 place-items-center rounded-full bg-blue text-white transition-all duration-300 hover:opacity-90 active:scale-95"
+                >
+                  <Icon name="stop" size={15} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={submit}
+                  disabled={!hasText}
+                  aria-label="Send message to ZYREX"
+                  title="Send"
+                  className={cn(
+                    "ml-0.5 grid size-10 place-items-center rounded-full transition-all duration-300 active:scale-95",
+                    hasText
+                      ? "bg-blue text-white shadow-sm hover:opacity-90"
+                      : "cursor-not-allowed bg-surface3 text-muted",
+                  )}
+                >
+                  <Icon name="arrowUp" size={18} />
+                </button>
+              )}
             </div>
           </div>
 
