@@ -79,6 +79,21 @@ function cleanText(value: string): string {
   return text.replace(/<br\s*\/?>/gi, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+/**
+ * Console-only transport diagnostics. The UI only ever shows the
+ * generic failure notice, so this is the one place the real reason a
+ * generation failed (close code, backend error frame, silence timeout,
+ * unrecognized framing) is recorded — visible in the browser DevTools
+ * console, never on screen. No prompt/history content is logged.
+ */
+function logTransportDiagnostic(event: string, details: Record<string, unknown> = {}): void {
+  try {
+    console.warn(`[HERMES transport] ${event}`, details);
+  } catch {
+    /* diagnostics must never break the transport */
+  }
+}
+
 /* -------------------------------------------------------------- answer text */
 
 const TEXT_KEYS = [
@@ -361,7 +376,7 @@ export function buildRequestPayload(request: AnalysisRequest): {
  * instead of being stringified into the reply.
  */
 
-const DELTA_KEYS = ["chunk", "token", "delta", "text", "content"] as const;
+const DELTA_KEYS = ["chunk", "token", "delta", "text", "content", "data"] as const;
 const SNAPSHOT_KEYS = ["answer", "response", "reply", "output", "result"] as const;
 
 /**
@@ -399,6 +414,19 @@ function snapshotFromRecord(record: Json): string | undefined {
     const value = record[key];
     if (typeof value === "string" && value.length > 0) return value;
   }
+  // `message` also carries answer text on some backends — but status and
+  // tool-event frames use it for labels, so only trust it when the frame
+  // carries no type/event/status/tool markers at all.
+  const looksLikeControlFrame =
+    record.type !== undefined ||
+    record.event !== undefined ||
+    record.status !== undefined ||
+    record.tool !== undefined ||
+    record.tool_name !== undefined ||
+    record.name !== undefined;
+  if (!looksLikeControlFrame && typeof record.message === "string" && record.message.length > 0) {
+    return record.message;
+  }
   return undefined;
 }
 
@@ -417,12 +445,17 @@ function errorFromRecord(record: Json): string | undefined {
 }
 
 function isDoneRecord(record: Json): boolean {
-  return (
-    record.done === true ||
-    record.type === "done" ||
-    record.event === "done" ||
-    record.status === "done"
-  );
+  if (record.done === true) return true;
+  const kind = [record.type, record.event, record.status]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  if (/(done|complete|completed|final|finished)/.test(kind)) return true;
+  const choices = record.choices;
+  if (Array.isArray(choices) && isRecord(choices[0])) {
+    return typeof choices[0].finish_reason === "string" && choices[0].finish_reason.length > 0;
+  }
+  return false;
 }
 
 const TOOL_ACTIVITY: Array<[RegExp, string]> = [
@@ -476,6 +509,9 @@ export async function requestAnalysis(
     let answer = "";
     let options: StructuredOption[] | undefined;
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let opened = false;
+    let frameCount = 0;
+    let lastIgnoredFrameKeys: string[] = [];
 
     function finish(result: AnalysisResult) {
       if (settled) return;
@@ -500,6 +536,12 @@ export async function requestAnalysis(
     function armIdleTimer() {
       if (idleTimer !== undefined) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
+        logTransportDiagnostic("silence timeout before [DONE]", {
+          opened,
+          frameCount,
+          answerChars: answer.length,
+          timeoutMs: aiBackend.timeoutMs,
+        });
         finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
       }, aiBackend.timeoutMs);
     }
@@ -523,6 +565,12 @@ export async function requestAnalysis(
 
     function complete() {
       handlers.onDone?.();
+      if (!answer.trim()) {
+        logTransportDiagnostic("stream ended with no readable answer text", {
+          frameCount,
+          lastIgnoredFrameKeys,
+        });
+      }
       finish(
         answer.trim()
           ? { status: "ready", ...answerToBlocks(answer), options }
@@ -547,6 +595,7 @@ export async function requestAnalysis(
     function handleFrame(raw: string) {
       if (settled) return;
       armIdleTimer();
+      frameCount += 1;
       const payload = parseJson(raw);
 
       // JSON-encoded string chunk (including an encoded "[DONE]").
@@ -558,6 +607,10 @@ export async function requestAnalysis(
       if (isRecord(payload)) {
         const error = errorFromRecord(payload);
         if (error) {
+          logTransportDiagnostic("backend sent an error frame", {
+            frame: raw.slice(0, 500),
+            answerChars: answer.length,
+          });
           finish({ status: "offline", reason: error });
           return;
         }
@@ -574,6 +627,13 @@ export async function requestAnalysis(
             complete();
             return;
           }
+          if (isDoneRecord(payload)) {
+            // Completion frames typically repeat the whole answer —
+            // apply as a snapshot so it can't duplicate streamed text.
+            appendSnapshot(delta);
+            complete();
+            return;
+          }
           appendText(delta);
         } else {
           const snapshot = snapshotFromRecord(payload);
@@ -583,6 +643,7 @@ export async function requestAnalysis(
             // Frames with no answer text (status / tool-call events) are
             // never stringified into the reply — they only drive the
             // "Thinking / searching" activity label.
+            lastIgnoredFrameKeys = Object.keys(payload).slice(0, 12);
             const activity = activityFromRecord(payload);
             if (activity) handlers.onActivity?.(activity);
           }
@@ -606,11 +667,15 @@ export async function requestAnalysis(
       socket = new WebSocket(ZYREX_WS_URL);
       const activeSocket = socket;
       activeSocket.onopen = () => {
+        opened = true;
         armIdleTimer();
         try {
           handlers.onOpen?.();
           activeSocket.send(JSON.stringify(payload));
-        } catch {
+        } catch (error) {
+          logTransportDiagnostic("failed to send request payload", {
+            error: String(error),
+          });
           finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
         }
       };
@@ -628,11 +693,38 @@ export async function requestAnalysis(
           handleFrame(new TextDecoder().decode(data));
         }
       };
-      activeSocket.onerror = () =>
+      activeSocket.onerror = () => {
+        logTransportDiagnostic("WebSocket error", {
+          opened,
+          frameCount,
+          answerChars: answer.length,
+        });
         finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
-      activeSocket.onclose = () =>
+      };
+      activeSocket.onclose = (event: CloseEvent) => {
+        logTransportDiagnostic("WebSocket closed before [DONE]", {
+          code: event?.code,
+          reason: event?.reason || undefined,
+          wasClean: event?.wasClean,
+          opened,
+          frameCount,
+          answerChars: answer.length,
+          lastIgnoredFrameKeys,
+        });
+        // A normal (1000) server close after a streamed answer means the
+        // backend finished and hung up without sending the [DONE]
+        // marker — deliver the answer instead of discarding it. An
+        // abnormal close (e.g. 1006 handshake rejection, 1011 server
+        // error) stays a failure so truncated answers aren't presented
+        // as complete.
+        if (event?.code === 1000 && answer.trim()) {
+          complete();
+          return;
+        }
         finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
-    } catch {
+      };
+    } catch (error) {
+      logTransportDiagnostic("failed to open WebSocket", { error: String(error) });
       finish({ status: "offline", reason: GENERATION_FAILED_MESSAGE });
     }
   });
@@ -697,26 +789,31 @@ export async function checkAiBackendHealth(): Promise<BackendHealth> {
   const startedAt = Date.now();
   const elapsed = () => Date.now() - startedAt;
 
-  const http = await probeHealthEndpoint(aiBackend.timeoutMs);
-  if (http.ok) {
-    return {
-      state: "connected",
-      label: "Connected",
-      detail: `Connected in ${elapsed()}ms.`,
-      latencyMs: elapsed(),
-      status: http.status,
-    };
-  }
-
-  // /health can be unreachable from a browser (e.g. no CORS headers on the
-  // HTTP route) while the WebSocket itself is fine — WebSockets are not
-  // subject to CORS, only to the backend's Origin allowlist.
+  // Chat runs over the WebSocket, so "Connected" must mean the socket
+  // handshake itself succeeds from this page's origin. An HTTP /health
+  // pass alone can hide a WebSocket that is rejected (wrong route or an
+  // Origin that isn't allowlisted) while the UI claims all is well.
   const wsOk = await probeWebSocketHandshake(aiBackend.timeoutMs);
   if (wsOk) {
     return {
       state: "connected",
       label: "Connected",
       detail: `Connected in ${elapsed()}ms.`,
+      latencyMs: elapsed(),
+      status: null,
+    };
+  }
+
+  const http = await probeHealthEndpoint(aiBackend.timeoutMs);
+  logTransportDiagnostic("health probe: WebSocket handshake failed", {
+    httpOk: http.ok,
+    httpStatus: http.status,
+  });
+  if (http.ok) {
+    return {
+      state: "error",
+      label: "Error",
+      detail: "Service is reachable, but the live connection was blocked.",
       latencyMs: elapsed(),
       status: http.status,
     };

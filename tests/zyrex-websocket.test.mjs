@@ -16,6 +16,8 @@ class MockSocket {
   chunk(data) { this.onmessage?.({ data }); }
 }
 globalThis.WebSocket = MockSocket;
+// Silence console-only transport diagnostics during tests.
+console.warn = () => {};
 const request = { prompt: ' Review risk ', mode: 'analyst', history: [{ role: 'user', text: 'Earlier' }] };
 
 async function waitFor(condition, attempts = 100) {
@@ -170,6 +172,45 @@ test('premature close does not report a completed answer', async () => {
   assert.equal((await result).status, 'offline');
 });
 
+test('a normal (1000) close after a streamed answer completes without [DONE]', async () => {
+  const result = api.requestAnalysis(request);
+  const socket = MockSocket.instances.at(-1);
+  socket.chunk('Full answer.');
+  socket.onclose({ code: 1000, wasClean: true });
+  const answer = await result;
+  assert.equal(answer.status, 'ready');
+  assert.equal(answer.blocks[0].text, 'Full answer.');
+});
+
+test('an abnormal (1006) close still reports offline, even with partial text', async () => {
+  const result = api.requestAnalysis(request);
+  const socket = MockSocket.instances.at(-1);
+  socket.chunk('Partial…');
+  socket.onclose({ code: 1006, wasClean: false });
+  assert.equal((await result).status, 'offline');
+});
+
+test('message- and data-framed JSON chunks are read as answer text', async () => {
+  const result = api.requestAnalysis(request);
+  const socket = MockSocket.instances.at(-1);
+  socket.chunk('{"message":"Hello "}');
+  socket.chunk('{"data":"world"}');
+  socket.chunk('[DONE]');
+  const answer = await result;
+  assert.equal(answer.status, 'ready');
+  assert.equal(answer.blocks[0].text, 'Hello world');
+});
+
+test('a completion event carrying the full answer does not duplicate streamed text', async () => {
+  const result = api.requestAnalysis(request);
+  const socket = MockSocket.instances.at(-1);
+  socket.chunk('{"content":"Bit"}');
+  socket.chunk('{"event":"RunCompleted","content":"Bitcoin"}');
+  const answer = await result;
+  assert.equal(answer.status, 'ready');
+  assert.equal(answer.blocks[0].text, 'Bitcoin');
+});
+
 test('backend errors, empty streams, and timeout report offline', async () => {
   for (const chunk of ['{"error":"Unavailable"}', '[DONE]', null]) {
     const result = api.requestAnalysis(request);
@@ -185,48 +226,48 @@ test('blank prompt never opens a socket', async () => {
   assert.equal(MockSocket.instances.length, count);
 });
 
-test('health uses the /health endpoint when it answers OK', async () => {
+test('health is Connected only when the WebSocket handshake succeeds', async () => {
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async (url) => {
-    assert.equal(url, 'https://zyrex-mpya.onrender.com/health');
-    return { ok: true, status: 200 };
-  };
+  let fetchCalls = 0;
+  globalThis.fetch = async () => { fetchCalls += 1; return { ok: true, status: 200 }; };
   try {
-    const count = MockSocket.instances.length;
-    const health = await api.checkAiBackendHealth();
-    assert.equal(health.state, 'connected');
-    assert.equal(health.status, 200);
-    assert.equal(MockSocket.instances.length, count);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-});
-
-test('health falls back to the WebSocket handshake when /health is unreachable', async () => {
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async () => { throw new Error('no CORS'); };
-  try {
-    const count = MockSocket.instances.length;
     const result = api.checkAiBackendHealth();
-    await waitFor(() => MockSocket.instances.length > count);
     const socket = MockSocket.instances.at(-1);
     assert.equal(socket.url, 'wss://zyrex-mpya.onrender.com');
     socket.onopen();
     const health = await result;
     assert.equal(health.state, 'connected');
     assert.equal(socket.closed, true);
+    assert.equal(fetchCalls, 0);
   } finally {
     globalThis.fetch = realFetch;
   }
 });
 
-test('health reports offline when both /health and the handshake fail', async () => {
+test('health reports Error (not Connected) when /health is OK but the WebSocket is blocked', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.equal(url, 'https://zyrex-mpya.onrender.com/health');
+    return { ok: true, status: 200 };
+  };
+  try {
+    const result = api.checkAiBackendHealth();
+    const socket = MockSocket.instances.at(-1);
+    socket.onerror();
+    const health = await result;
+    assert.equal(health.state, 'error');
+    assert.equal(health.status, 200);
+    assert.equal(health.detail.includes('onrender.com'), false);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('health reports offline when both the handshake and /health fail', async () => {
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: false, status: 503 });
   try {
-    const count = MockSocket.instances.length;
     const result = api.checkAiBackendHealth();
-    await waitFor(() => MockSocket.instances.length > count);
     const socket = MockSocket.instances.at(-1);
     socket.onerror();
     const health = await result;
