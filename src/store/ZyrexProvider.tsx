@@ -147,7 +147,7 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
 
   const [aiStatus, setAiStatus] = useState<ConnectionState>("connecting");
   const [aiStatusDetail, setAiStatusDetail] = useState<string>(
-    `Probing ${aiBackend.baseUrl}${aiBackend.healthEndpoint}…`,
+    `Probing ${aiBackend.healthUrl}…`,
   );
 
   const [settings, setSettings] = useLocalStorage<AppSettings>("hermes.settings", defaultSettings);
@@ -353,7 +353,7 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
 
   const recheckAiConnection = useCallback(() => {
     setAiStatus("connecting");
-    setAiStatusDetail(`Probing ${aiBackend.baseUrl}${aiBackend.healthEndpoint}…`);
+    setAiStatusDetail(`Probing ${aiBackend.healthUrl}…`);
     void checkAiBackendHealth().then((health) => {
       setAiStatus(health.state);
       setAiStatusDetail(health.detail);
@@ -408,14 +408,22 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
         blocks: [],
       };
 
-      const history = (activeConversation?.messages.slice(-8) ?? []).map((message) =>
-        message.role === "user"
-          ? { role: "user" as const, text: message.text ?? "" }
-          : {
-              role: "assistant" as const,
-              text: responseToText(message.title ?? "HERMES Analysis", message.blocks ?? []),
-            },
-      );
+      // Previous turns only, in the backend's { role, text } shape. Send
+      // the assistant's actual streamed words — not a re-serialized
+      // header/blocks summary — and skip failed or cancelled turns.
+      const history = (activeConversation?.messages ?? [])
+        .filter((message) => message.kind !== "offline" && message.kind !== "cancelled")
+        .slice(-8)
+        .map((message) =>
+          message.role === "user"
+            ? { role: "user" as const, text: message.text ?? "" }
+            : {
+                role: "assistant" as const,
+                text:
+                  message.text?.trim() ||
+                  responseToText(message.title ?? "HERMES Analysis", message.blocks ?? []),
+              },
+        );
 
       let conversationId = activeId;
       if (!conversationId) {
@@ -522,8 +530,8 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
             ...message,
             kind: "offline",
             title: result.reason,
-            text: "",
-            blocks: [],
+            // Keep whatever streamed before the failure; the offline
+            // bubble renders the reason, and the text stays copyable.
           }));
         })
         .catch(() => {
@@ -536,8 +544,6 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
             ...message,
             kind: "offline",
             title: "I couldn't connect to HERMES right now. Please try again.",
-            text: "",
-            blocks: [],
           }));
         })
         .finally(() => {
