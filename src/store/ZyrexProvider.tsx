@@ -213,8 +213,17 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
   }, [resolvedTheme]);
 
   useEffect(() => {
-    writeCache("hermes.conversations", conversations);
-  }, [conversations]);
+    // Persisting serializes every conversation to localStorage, which is
+    // synchronous main-thread work. While tokens are streaming in, debounce
+    // it so a token burst coalesces into a single write; when streaming
+    // ends (or for any non-streaming change) write immediately as before.
+    if (!isStreaming) {
+      writeCache("hermes.conversations", conversations);
+      return;
+    }
+    const timer = setTimeout(() => writeCache("hermes.conversations", conversations), 500);
+    return () => clearTimeout(timer);
+  }, [conversations, isStreaming]);
 
   useEffect(() => {
     writeCache("hermes.journal", journal);
@@ -511,6 +520,59 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
         });
       };
 
+      // Batch streamed tokens into animation-frame state updates instead of
+      // re-rendering on every WebSocket frame: tokens can arrive per
+      // character, and each one previously triggered a full conversation
+      // state write + markdown reparse + scroll. Incoming text is buffered
+      // here and flushed at most once per frame (and at most every 50ms),
+      // so a burst of frames coalesces into a single render. The final
+      // buffered text is flushed synchronously on completion/cancel/error
+      // below, so no characters are ever lost or reordered.
+      const STREAM_FLUSH_INTERVAL_MS = 50;
+      let pendingStreamText: string | null = null;
+      let streamFlushFrame: number | null = null;
+      let lastStreamFlushAt = 0;
+      let lastSilenceArmAt = 0;
+      let hasStreamedToken = false;
+
+      const applyStreamText = (accumulated: string) => {
+        lastStreamFlushAt = performance.now();
+        updateLastAssistant((message) => ({
+          ...message,
+          kind: "analysis",
+          text: accumulated,
+          blocks: [{ type: "summary", text: accumulated }],
+        }));
+      };
+
+      const cancelPendingStreamFlush = () => {
+        if (streamFlushFrame !== null) {
+          cancelAnimationFrame(streamFlushFrame);
+          streamFlushFrame = null;
+        }
+      };
+
+      const flushPendingStreamText = () => {
+        cancelPendingStreamFlush();
+        if (pendingStreamText === null) return;
+        const accumulated = pendingStreamText;
+        pendingStreamText = null;
+        applyStreamText(accumulated);
+      };
+
+      const scheduleStreamFlush = () => {
+        if (streamFlushFrame !== null) return;
+        const tick = () => {
+          streamFlushFrame = null;
+          if (performance.now() - lastStreamFlushAt < STREAM_FLUSH_INTERVAL_MS) {
+            streamFlushFrame = requestAnimationFrame(tick);
+            return;
+          }
+          flushPendingStreamText();
+        };
+        streamFlushFrame = requestAnimationFrame(tick);
+      };
+
       void requestAnalysis(
         {
           prompt: (text || "See attached files.") + attachmentNote,
@@ -529,25 +591,33 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
             scheduleActivity([[10_000, "Still working…"]]);
           },
           onToken: (accumulated) => {
-            setGenerationState("streaming");
-            armStreamSilenceActivity();
-            updateLastAssistant((message) => ({
-              ...message,
-              kind: "analysis",
-              text: accumulated,
-              blocks: [{ type: "summary", text: accumulated }],
-            }));
+            if (!hasStreamedToken) {
+              hasStreamedToken = true;
+              setGenerationState("streaming");
+            }
+            // Re-arming the silence-activity timers is throttled too —
+            // previously every token cleared and recreated four timers.
+            // 250ms granularity is far finer than the 3s+ activity stages.
+            const now = performance.now();
+            if (now - lastSilenceArmAt >= 250) {
+              lastSilenceArmAt = now;
+              armStreamSilenceActivity();
+            }
+            pendingStreamText = accumulated;
+            scheduleStreamFlush();
           },
           onOptions: (options) => {
             updateLastAssistant((message) => ({ ...message, options }));
           },
           onDone: () => {
+            flushPendingStreamText();
             endActivity();
             setIsStreaming(false);
           },
         },
       )
         .then((result) => {
+          flushPendingStreamText();
           if (
             controller.signal.aborted ||
             (result.status === "offline" && result.reason === "Generation cancelled.")
@@ -587,6 +657,7 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
           }));
         })
         .catch(() => {
+          flushPendingStreamText();
           setAiStatus("disconnected");
           setAiStatusDetail("Service unavailable right now. Please try again.");
           setGenerationState("error");
@@ -597,6 +668,7 @@ export function ZyrexProvider({ children }: { children: ReactNode }) {
           }));
         })
         .finally(() => {
+          cancelPendingStreamFlush();
           endActivity();
           setIsStreaming(false);
           setPhase("idle");

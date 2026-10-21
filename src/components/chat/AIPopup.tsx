@@ -91,7 +91,7 @@ export function AIPopup({ isOpen, onClose }: AIPopupProps) {
 
         {/* Messages Area */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 contain-layout">
             {displayMessages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center">
                 <ZyrexLogo size={48} state="idle" />
