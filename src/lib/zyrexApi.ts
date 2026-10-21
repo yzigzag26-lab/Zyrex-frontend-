@@ -671,7 +671,15 @@ export async function requestAnalysis(
         armIdleTimer();
         try {
           handlers.onOpen?.();
-          activeSocket.send(JSON.stringify(payload));
+          activeSocket.send(JSON.stringify({
+            type: "action",
+            action: "chat_turn",
+            params: {
+              prompt: payload.prompt,
+              mode: payload.mode,
+              history: payload.history
+            }
+          }));
         } catch (error) {
           logTransportDiagnostic("failed to send request payload", {
             error: String(error),
