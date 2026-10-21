@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "../ui/Icons";
@@ -79,19 +79,35 @@ const baseComponents = {
   },
 };
 
-export function Markdown({ children, inline = false }: { children: string; inline?: boolean }) {
+// Stable module-level references: recreating the plugins array / components
+// object on every render defeats ReactMarkdown's internal caching and
+// forces a full re-parse of the document each time.
+const remarkPlugins = [remarkGfm];
+const inlineComponents = {
+  ...baseComponents,
+  p: ({ children: content }: { children?: ReactNode }) => <>{content}</>,
+};
+
+/**
+ * Memoized so finished messages in the timeline don't re-normalize and
+ * re-parse their markdown on every render while a newer message streams.
+ * Props are a plain string + flag, so the default shallow compare is exact.
+ */
+export const Markdown = memo(function Markdown({
+  children,
+  inline = false,
+}: {
+  children: string;
+  inline?: boolean;
+}) {
   return (
     <div className="zyrex-markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={
-          inline
-            ? { ...baseComponents, p: ({ children: content }) => <>{content}</> }
-            : baseComponents
-        }
+        remarkPlugins={remarkPlugins}
+        components={inline ? inlineComponents : baseComponents}
       >
         {normalizeMarkdown(children)}
       </ReactMarkdown>
     </div>
   );
-}
+});

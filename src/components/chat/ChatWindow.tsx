@@ -27,6 +27,7 @@ export function ChatWindow() {
   } = useZyrex();
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollFrameRef = useRef<number | null>(null);
   const [journalOpen, setJournalOpen] = useState(false);
   const [journalTitle, setJournalTitle] = useState("");
   const [menuNotice, setMenuNotice] = useState<string | null>(null);
@@ -36,10 +37,27 @@ export function ChatWindow() {
   const streamingLast =
     isStreaming && last?.role !== "user" && (generationState === "processing" || generationState === "streaming");
 
+  // Cancel any pending scroll frame on unmount.
+  useEffect(
+    () => () => {
+      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    },
+    [],
+  );
+
   useEffect(() => {
-    const node = scrollRef.current;
-    if (!node) return;
-    node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
+    // Coalesce auto-scroll into a single animation frame: previously every
+    // streamed token synchronously read scrollHeight (forcing layout) and
+    // restarted a smooth-scroll animation. While streaming we follow the
+    // bottom instantly inside the frame; the smooth behavior is kept for
+    // non-streaming updates (opening a conversation, sending a message).
+    if (scrollFrameRef.current !== null) return;
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      const node = scrollRef.current;
+      if (!node) return;
+      node.scrollTo({ top: node.scrollHeight, behavior: isStreaming ? "auto" : "smooth" });
+    });
   }, [messages, isStreaming]);
 
   return (
@@ -131,21 +149,20 @@ export function ChatWindow() {
         </div>
       </header>
 
-      <div ref={scrollRef} className="z-scroll min-h-0 flex-1 overflow-y-auto px-4 py-6">
+      <div ref={scrollRef} className="z-scroll min-h-0 flex-1 overflow-y-auto px-4 py-6 contain-layout">
         {hasMessages ? (
           <div className="mx-auto w-full max-w-3xl space-y-6">
-            {messages.map((message, index) => (
-              <div key={message.id}>
-                {message.role === "user" ? (
-                  <UserMessage message={message} />
-                ) : (
-                  <ZyrexMessage
-                    message={message}
-                    streaming={streamingLast && index === messages.length - 1}
-                  />
-                )}
-              </div>
-            ))}
+            {messages.map((message, index) =>
+              message.role === "user" ? (
+                <UserMessage key={message.id} message={message} />
+              ) : (
+                <ZyrexMessage
+                  key={message.id}
+                  message={message}
+                  streaming={streamingLast && index === messages.length - 1}
+                />
+              ),
+            )}
           </div>
         ) : (
           <div className="mx-auto flex h-full min-h-[280px] w-full max-w-3xl flex-col items-center justify-center text-center">
