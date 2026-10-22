@@ -8,8 +8,16 @@
       name="description"
       content="HERMES AI — private AI-assisted financial analysis and trading."
     />
-    <link rel="icon" href="/hermes-logo.jpg" type="image/jpeg" />
-    <link rel="apple-touch-icon" href="/hermes-logo.jpg" />
+    <!-- Inline SVG favicon: the Wasmer deployment serves this single HTML
+         file with no sibling assets, so an absolute-path icon href
+         404-looped in the server logs on every load. A data URI never
+         triggers a network fetch. (The in-app brand logo is unaffected —
+         it is bundled into the JS as a data URI by the build.) -->
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23080A0F'/><text x='32' y='44' font-family='Arial,sans-serif' font-size='36' font-weight='700' fill='%23D4AF37' text-anchor='middle'>H</text></svg>"
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
