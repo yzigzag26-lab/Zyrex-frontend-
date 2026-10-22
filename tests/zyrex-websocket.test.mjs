@@ -45,11 +45,7 @@ test('secure endpoint, JSON payload, whitespace, and DONE completion', async () 
   const socket = MockSocket.instances.at(-1);
   assert.equal(socket.url, 'wss://zyrex-mpya.onrender.com');
   socket.onopen();
-  assert.deepEqual(socket.sent, {
-    type: 'action',
-    action: 'chat_turn',
-    params: { ...request, prompt: 'Review risk' },
-  });
+  assert.deepEqual(socket.sent, { ...request, prompt: 'Review risk' });
   socket.chunk('Manage'); socket.chunk(' '); socket.chunk('risk.');
   socket.chunk('[DONE]');
   const answer = await result;
@@ -86,7 +82,7 @@ test('sends current mode and appends tokens until DONE', async () => {
   const socket = MockSocket.instances.at(-1);
   socket.onopen();
   assert.equal(opened, true);
-  assert.equal(socket.sent.params.mode, 'coach');
+  assert.equal(socket.sent.mode, 'coach');
   socket.chunk('Keep'); socket.chunk(' '); socket.chunk('calm.');
   socket.chunk('[DONE]');
   const answer = await result;
