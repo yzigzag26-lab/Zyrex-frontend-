@@ -33,6 +33,12 @@ test('ships only the ZYREX backend endpoints — no legacy HTTP, no direct provi
   assert.equal(bundled.includes('/api/zyrex-ai'), false);
   assert.equal(bundled.includes('api.Groq.com'), false);
   assert.equal(bundled.includes('api.openai.com'), false);
+  // No provider API key material, and no client-side model selection:
+  // the backend alone owns the model (llama-3.3-70b-versatile) and key.
+  assert.equal(bundled.includes('gsk_'), false);
+  assert.equal(bundled.includes('llama'), false);
+  // The outgoing payload is the flat canonical shape — no action envelope.
+  assert.equal(bundled.includes('chat_turn'), false);
   assert.match(bundled, /wss:\/\/zyrex-mpya\.onrender\.com/);
   assert.match(bundled, /https:\/\/zyrex-mpya\.onrender\.com\/health/);
   // Failure copy shown to users must never expose transport details.
@@ -45,11 +51,7 @@ test('secure endpoint, JSON payload, whitespace, and DONE completion', async () 
   const socket = MockSocket.instances.at(-1);
   assert.equal(socket.url, 'wss://zyrex-mpya.onrender.com');
   socket.onopen();
-  assert.deepEqual(socket.sent, {
-    type: 'action',
-    action: 'chat_turn',
-    params: { ...request, prompt: 'Review risk' },
-  });
+  assert.deepEqual(socket.sent, { ...request, prompt: 'Review risk' });
   socket.chunk('Manage'); socket.chunk(' '); socket.chunk('risk.');
   socket.chunk('[DONE]');
   const answer = await result;
@@ -86,7 +88,7 @@ test('sends current mode and appends tokens until DONE', async () => {
   const socket = MockSocket.instances.at(-1);
   socket.onopen();
   assert.equal(opened, true);
-  assert.equal(socket.sent.params.mode, 'coach');
+  assert.equal(socket.sent.mode, 'coach');
   socket.chunk('Keep'); socket.chunk(' '); socket.chunk('calm.');
   socket.chunk('[DONE]');
   const answer = await result;
@@ -228,6 +230,27 @@ test('blank prompt never opens a socket', async () => {
   const count = MockSocket.instances.length;
   assert.equal((await api.requestAnalysis({ ...request, prompt: ' ' })).status, 'offline');
   assert.equal(MockSocket.instances.length, count);
+});
+
+test('minimal first-turn payload is exactly { prompt, mode, history: [] }', async () => {
+  const result = api.requestAnalysis({ prompt: '  Hello  ', mode: 'analyst' });
+  const socket = MockSocket.instances.at(-1);
+  socket.onopen();
+  assert.deepEqual(socket.sent, { prompt: 'Hello', mode: 'analyst', history: [] });
+  assert.deepEqual(Object.keys(socket.sent).sort(), ['history', 'mode', 'prompt']);
+  socket.chunk('Hi there.');
+  socket.chunk('[DONE]');
+  assert.equal((await result).status, 'ready');
+});
+
+test('a failed WebSocket handshake reports a connection failure', async () => {
+  const result = api.requestAnalysis(request);
+  const socket = MockSocket.instances.at(-1);
+  socket.onerror();
+  const answer = await result;
+  assert.equal(answer.status, 'offline');
+  assert.equal(answer.reason, "Couldn't Generate Response");
+  assert.equal(socket.closed, true);
 });
 
 test('health is Connected only when the WebSocket handshake succeeds', async () => {

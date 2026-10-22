@@ -354,7 +354,7 @@ export function buildRequestPayload(request: AnalysisRequest): {
 } {
   return {
     prompt: request.prompt.trim(),
-    mode: request.mode,
+    mode: request.mode || "analyst",
     history: (request.history ?? [])
       .map((turn) => ({
         role: turn.role === "user" ? ("user" as const) : ("assistant" as const),
@@ -671,15 +671,11 @@ export async function requestAnalysis(
         armIdleTimer();
         try {
           handlers.onOpen?.();
-          activeSocket.send(JSON.stringify({
-            type: "action",
-            action: "chat_turn",
-            params: {
-              prompt: payload.prompt.trim(),
-              mode: payload.mode || "analyst",
-              history: payload.history || []
-            }
-          }));
+          // Canonical wire payload, sent flat: the backend reads
+          // `prompt`, `mode`, and `history` from the top level. No
+          // action envelope, no model name — model selection (and its
+          // API key) belongs to the backend alone.
+          activeSocket.send(JSON.stringify(payload));
         } catch (error) {
           logTransportDiagnostic("failed to send request payload", {
             error: String(error),
