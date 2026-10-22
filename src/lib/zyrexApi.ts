@@ -672,9 +672,13 @@ export async function requestAnalysis(
         try {
           handlers.onOpen?.();
           activeSocket.send(JSON.stringify({
-            prompt: payload.prompt,
-            mode: payload.mode || "analyst",
-            history: payload.history || []
+            type: "action",
+            action: "chat_turn",
+            params: {
+              prompt: payload.prompt.trim(),
+              mode: payload.mode || "analyst",
+              history: payload.history || []
+            }
           }));
         } catch (error) {
           logTransportDiagnostic("failed to send request payload", {
